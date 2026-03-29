@@ -35,9 +35,13 @@ namespace MailPrioritizer.TaskPane
         private Label _lblStatsTitle;
         private Label _lblStatsContent;
         private Button _btnRefreshStats;
+        private ToolTip _toolTip;
 
         // 현재 표시 중인 메일 (EntryID로 참조, COM 객체 직접 보관 지양)
         private string _currentEntryId;
+
+        // R-06: 피드백 수집용 — 현재 표시 중인 분석 결과 (우선순위 변경 전 원본)
+        private Models.MailAnalysis _currentAnalysis;
 
         public SummaryControl()
         {
@@ -59,6 +63,7 @@ namespace MailPrioritizer.TaskPane
             SafeInvoke(() =>
             {
                 _currentEntryId = mail?.EntryID;
+                _currentAnalysis = analysis;
                 RenderAnalysis(analysis);
             });
         }
@@ -123,11 +128,22 @@ namespace MailPrioritizer.TaskPane
             _pnlPriorityBadge.BackColor = GetPriorityColor(analysis.Priority);
             _lblPriorityText.Text = analysis.Priority.ToEmoji() + " " + analysis.Priority.ToKorean();
 
-            _lblSummary.Text = analysis.IsFallback
-                ? "(분석 실패) " + analysis.ErrorMessage
-                : analysis.Summary ?? "";
+            if (analysis.IsFallback)
+                _lblSummary.Text = "(분석 실패) " + analysis.ErrorMessage;
+            else if (analysis.IsRuleBased)
+                _lblSummary.Text = "(발신자 규칙 적용)";
+            else
+                _lblSummary.Text = analysis.Summary ?? "";
 
             _lblReason.Text = analysis.PriorityReason ?? "";
+
+            // R-07: 분석 모델/출처 정보 (툴팁으로 표시)
+            string tooltip = analysis.IsRuleBased ? "규칙 기반 분류"
+                : !string.IsNullOrEmpty(analysis.ModelName)
+                    ? "모델: " + analysis.ModelName
+                      + "  분석일: " + analysis.AnalyzedAt.ToString("MM-dd HH:mm")
+                    : "";
+            _toolTip.SetToolTip(_lblSummaryHeader, tooltip);
 
             _cmbPriority.SelectedIndexChanged -= OnPriorityChanged;
             _cmbPriority.SelectedIndex = (int)analysis.Priority - 1;
@@ -226,6 +242,19 @@ namespace MailPrioritizer.TaskPane
                 if (Globals.ThisAddIn.Config.Classification.AutoMoveToFolder)
                     Globals.ThisAddIn.FolderManager.MoveToFolder(mail, newPriority);
 
+                // R-06: LLM 분류와 사용자 변경이 다를 때 피드백 기록
+                if (_currentAnalysis != null && !_currentAnalysis.IsRuleBased
+                    && !_currentAnalysis.IsFallback
+                    && _currentAnalysis.Priority != newPriority)
+                {
+                    Globals.ThisAddIn.FeedbackStore.Record(
+                        _currentEntryId,
+                        mail.Subject ?? "",
+                        _currentAnalysis.Priority,
+                        newPriority);
+                    _currentAnalysis = null; // 동일 메일에 중복 기록 방지
+                }
+
                 _pnlPriorityBadge.BackColor = GetPriorityColor(newPriority);
                 _lblPriorityText.Text = newPriority.ToEmoji() + " " + newPriority.ToKorean();
             }
@@ -288,8 +317,22 @@ namespace MailPrioritizer.TaskPane
                 // STA 스레드에서 COM 작업 수행 (Outlook 이벤트 핸들러이므로 이미 STA)
                 var stats = Globals.ThisAddIn.MailProcessor.CollectInboxStats(
                     Globals.ThisAddIn.Application);
+
+                // R-06: 정확도 통계
+                var fbStats = Globals.ThisAddIn.FeedbackStore.GetStats(stats.Analyzed);
+
+                string accuracyLine = stats.Analyzed > 0
+                    ? string.Format("LLM 정확도: {0}%  수동 변경: {1}건",
+                        fbStats.AccuracyPercent, fbStats.CorrectionCount)
+                    : "";
+                string misclassifiedLine = !string.IsNullOrEmpty(fbStats.MostMisclassified)
+                    ? "최다 오분류: " + fbStats.MostMisclassified
+                    : "";
+
                 _lblStatsContent.Text = string.Format(
-                    "전체: {0}건  분석됨: {1}건\n긴급: {2}  높음: {3}  보통: {4}  낮음: {5}",
+                    "전체: {0}건  분석됨: {1}건\n긴급: {2}  높음: {3}  보통: {4}  낮음: {5}"
+                    + (accuracyLine != "" ? "\n" + accuracyLine : "")
+                    + (misclassifiedLine != "" ? "\n" + misclassifiedLine : ""),
                     stats.Total, stats.Analyzed,
                     stats.Urgent, stats.High, stats.Normal, stats.Low);
             }
@@ -322,6 +365,8 @@ namespace MailPrioritizer.TaskPane
             this.Font = new Font("맑은 고딕", 9f);
             this.AutoScroll = true;
             this.Padding = new Padding(8);
+
+            _toolTip = new ToolTip { AutoPopDelay = 8000, InitialDelay = 500 };
 
             var layout = new TableLayoutPanel
             {

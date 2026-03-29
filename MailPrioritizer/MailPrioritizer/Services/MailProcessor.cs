@@ -16,12 +16,15 @@ namespace MailPrioritizer.Services
         private readonly LlmService _llmService;
         private readonly FolderManager _folderManager;
         private AppConfig _config;
+        private readonly RetryQueue _retryQueue;
 
-        public MailProcessor(LlmService llmService, FolderManager folderManager, AppConfig config)
+        public MailProcessor(LlmService llmService, FolderManager folderManager, AppConfig config,
+            RetryQueue retryQueue = null)
         {
             _llmService = llmService;
             _folderManager = folderManager;
             _config = config;
+            _retryQueue = retryQueue;
         }
 
         public void ReloadConfig(AppConfig newConfig)
@@ -55,21 +58,47 @@ namespace MailPrioritizer.Services
             string subject = mail.Subject ?? "";
             string body = mail.Body ?? "";
             string sender = GetSender(mail);
+            string attachments = _config.Processing.IncludeAttachmentNames
+                ? GetAttachmentNames(mail) : "";
+
+            // R-01: 발신자 규칙 우선 적용 (LLM 호출 없음)
+            var ruleAnalysis = ApplySenderRules(sender);
+            if (ruleAnalysis != null)
+            {
+                Logger.Info("AnalyzeSingleAsync: rule matched, priority=" + ruleAnalysis.Priority);
+                if (_config.Display.TagSubjectWithPriority)
+                    TagSubject(mail, ruleAnalysis.Priority);
+                SaveAnalysisToMail(mail, ruleAnalysis);
+                if (_config.Classification.AutoMoveToFolder)
+                    _folderManager.MoveToFolder(mail, ruleAnalysis.Priority);
+                return ruleAnalysis;
+            }
 
             // LLM 호출 (ThreadPool에서 실행, await 후 STA 복귀)
             var analysis = await _llmService.AnalyzeMailAsync(
-                subject, body, sender, cancellationToken);
+                subject, body, sender, attachments, cancellationToken);
 
-            // STA 스레드로 복귀 후 COM 작업
-            if (_config.Display.TagSubjectWithPriority && !analysis.IsFallback)
-                TagSubject(mail, analysis.Priority);
+            // R-02: 분석 실패 시 재시도 큐에 등록 / 성공 시 큐에서 제거
+            if (_retryQueue != null)
+            {
+                if (analysis.IsFallback)
+                    _retryQueue.Enqueue(mail.EntryID);
+                else
+                    _retryQueue.Remove(mail.EntryID);
+            }
 
-            SaveAnalysisToMail(mail, analysis);
+            // STA 스레드로 복귀 후 COM 작업 (실패한 결과는 저장하지 않음)
+            if (!analysis.IsFallback)
+            {
+                if (_config.Display.TagSubjectWithPriority)
+                    TagSubject(mail, analysis.Priority);
+                SaveAnalysisToMail(mail, analysis);
+                if (_config.Classification.AutoMoveToFolder)
+                    _folderManager.MoveToFolder(mail, analysis.Priority);
+            }
 
-            if (_config.Classification.AutoMoveToFolder && !analysis.IsFallback)
-                _folderManager.MoveToFolder(mail, analysis.Priority);
-
-            Logger.Info("AnalyzeSingleAsync: complete, priority=" + analysis.Priority);
+            Logger.Info("AnalyzeSingleAsync: complete, priority=" + analysis.Priority
+                + (analysis.IsFallback ? " (fallback)" : ""));
             return analysis;
         }
 
@@ -131,12 +160,39 @@ namespace MailPrioritizer.Services
                         mail = outlookApp.Session.GetItemFromID(entryId) as Outlook.MailItem;
                         if (mail == null) continue;
 
+                        // R-01: 규칙 매칭 (COM 데이터 추출 전에 확인)
+                        string mailSender = GetSender(mail);
+                        var ruleResult = ApplySenderRules(mailSender);
+                        if (ruleResult != null)
+                        {
+                            Logger.Debug("AnalyzeInboxAsync: rule matched for \"" + mail.Subject + "\"");
+                            if (_config.Display.TagSubjectWithPriority)
+                                TagSubject(mail, ruleResult.Priority);
+                            SaveAnalysisToMail(mail, ruleResult);
+                            if (_config.Classification.AutoMoveToFolder)
+                                _folderManager.MoveToFolder(mail, ruleResult.Priority);
+
+                            // 규칙 적용 결과를 분석 카운터에 반영
+                            switch (ruleResult.Priority)
+                            {
+                                case Priority.Urgent: result.Urgent++; break;
+                                case Priority.High:   result.High++;   break;
+                                case Priority.Normal: result.Normal++; break;
+                                case Priority.Low:    result.Low++;    break;
+                            }
+                            result.CurrentSubject = mail.Subject ?? "(제목 없음)";
+                            progress?.Report(result);
+                            continue;
+                        }
+
                         batchItems.Add(new MailDataItem
                         {
                             EntryId = entryId,
                             Subject = mail.Subject ?? "",
                             Body = mail.Body ?? "",
-                            Sender = GetSender(mail)
+                            Sender = mailSender,
+                            Attachments = _config.Processing.IncludeAttachmentNames
+                                ? GetAttachmentNames(mail) : ""
                         });
 
                         result.CurrentSubject = mail.Subject ?? "(제목 없음)";
@@ -157,7 +213,7 @@ namespace MailPrioritizer.Services
                     var item = batchItems[j];
                     Logger.Debug("AnalyzeInboxAsync: processing \"" + item.Subject + "\"");
                     tasks[j] = _llmService.AnalyzeMailAsync(
-                        item.Subject, item.Body, item.Sender, cancellationToken);
+                        item.Subject, item.Body, item.Sender, item.Attachments, cancellationToken);
                 }
 
                 MailAnalysis[] analyses;
@@ -193,14 +249,12 @@ namespace MailPrioritizer.Services
                     try
                     {
                         freshMail = outlookApp.Session.GetItemFromID(item.EntryId) as Outlook.MailItem;
-                        if (freshMail != null)
+                        if (freshMail != null && !analysis.IsFallback)
                         {
-                            if (_config.Display.TagSubjectWithPriority && !analysis.IsFallback)
+                            if (_config.Display.TagSubjectWithPriority)
                                 TagSubject(freshMail, analysis.Priority);
-
                             SaveAnalysisToMail(freshMail, analysis);
-
-                            if (_config.Classification.AutoMoveToFolder && !analysis.IsFallback)
+                            if (_config.Classification.AutoMoveToFolder)
                                 _folderManager.MoveToFolder(freshMail, analysis.Priority);
                         }
                     }
@@ -212,6 +266,10 @@ namespace MailPrioritizer.Services
                     {
                         ComHelper.Release(freshMail);
                     }
+
+                    // R-02: 실패 시 재시도 큐에 등록
+                    if (analysis.IsFallback && _retryQueue != null)
+                        _retryQueue.Enqueue(item.EntryId);
 
                     bool success = false;
                     if (!analysis.IsFallback)
@@ -275,6 +333,7 @@ namespace MailPrioritizer.Services
             public string Subject;
             public string Body;
             public string Sender;
+            public string Attachments;  // R-04
         }
 
         // ──────────────────────────────────────────────────────────────
@@ -283,11 +342,13 @@ namespace MailPrioritizer.Services
 
         public void SaveAnalysisToMail(Outlook.MailItem mail, MailAnalysis analysis)
         {
-            Outlook.UserProperties props = null;
+            Outlook.UserProperties props    = null;
             Outlook.UserProperty propPriority  = null;
             Outlook.UserProperty propSummary   = null;
             Outlook.UserProperty propReason    = null;
             Outlook.UserProperty propAnalyzed  = null;
+            Outlook.UserProperty propModelName = null;
+            Outlook.UserProperty propAnalyzedAt = null;
 
             try
             {
@@ -309,11 +370,21 @@ namespace MailPrioritizer.Services
                                props.Add(MailPropertyNames.Analyzed, Outlook.OlUserPropertyType.olYesNo);
                 propAnalyzed.Value = true;
 
+                // R-07: 분석 버전 메타데이터
+                propModelName = props.Find(MailPropertyNames.ModelName) ??
+                                props.Add(MailPropertyNames.ModelName, Outlook.OlUserPropertyType.olText);
+                propModelName.Value = analysis.ModelName ?? (analysis.IsRuleBased ? "(rule)" : "");
+
+                propAnalyzedAt = props.Find(MailPropertyNames.AnalyzedAt) ??
+                                 props.Add(MailPropertyNames.AnalyzedAt, Outlook.OlUserPropertyType.olText);
+                propAnalyzedAt.Value = analysis.AnalyzedAt.ToString("yyyy-MM-dd HH:mm:ss");
+
                 mail.Save();
             }
             finally
             {
-                ComHelper.ReleaseAll(propAnalyzed, propReason, propSummary, propPriority, props);
+                ComHelper.ReleaseAll(propAnalyzedAt, propModelName, propAnalyzed, propReason,
+                    propSummary, propPriority, props);
             }
         }
 
@@ -345,13 +416,25 @@ namespace MailPrioritizer.Services
                 propSummary  = props.Find(MailPropertyNames.Summary);
                 propReason   = props.Find(MailPropertyNames.PriorityReason);
 
+                // R-07: 버전 메타데이터 읽기
+                var propModelName  = props.Find(MailPropertyNames.ModelName);
+                var propAnalyzedAt = props.Find(MailPropertyNames.AnalyzedAt);
+                string modelName = propModelName?.Value?.ToString() ?? "";
+                DateTime analyzedAt = DateTime.Now;
+                string analyzedAtStr = propAnalyzedAt?.Value?.ToString() ?? "";
+                if (!string.IsNullOrEmpty(analyzedAtStr))
+                    DateTime.TryParse(analyzedAtStr, out analyzedAt);
+                ComHelper.ReleaseAll(propAnalyzedAt, propModelName);
+
                 return new MailAnalysis
                 {
-                    Priority      = PriorityExtensions.FromString(propPriority?.Value?.ToString()),
-                    Summary       = propSummary?.Value?.ToString() ?? "",
+                    Priority       = PriorityExtensions.FromString(propPriority?.Value?.ToString()),
+                    Summary        = propSummary?.Value?.ToString() ?? "",
                     PriorityReason = propReason?.Value?.ToString() ?? "",
-                    AnalyzedAt    = DateTime.Now,
-                    IsFallback    = false
+                    AnalyzedAt     = analyzedAt,
+                    ModelName      = modelName,
+                    IsRuleBased    = modelName == "(rule)",
+                    IsFallback     = false
                 };
             }
             finally
@@ -396,6 +479,85 @@ namespace MailPrioritizer.Services
         private static string GetSender(Outlook.MailItem mail)
         {
             return mail.SenderEmailAddress ?? mail.SenderName ?? "";
+        }
+
+        /// <summary>
+        /// R-01: 발신자 이메일에 매칭되는 규칙이 있으면 MailAnalysis를 반환한다.
+        /// 매칭 없으면 null 반환 → LLM 호출.
+        /// </summary>
+        private MailAnalysis ApplySenderRules(string sender)
+        {
+            if (string.IsNullOrEmpty(sender)) return null;
+            if (_config.Rules == null || _config.Rules.SenderRules == null) return null;
+
+            foreach (var rule in _config.Rules.SenderRules)
+            {
+                if (!rule.Enabled || string.IsNullOrEmpty(rule.Pattern)) continue;
+
+                bool matched = false;
+                if (rule.Type == "email")
+                    matched = string.Equals(sender, rule.Pattern, StringComparison.OrdinalIgnoreCase);
+                else if (rule.Type == "domain")
+                {
+                    // "@domain.com" 형식이거나 단순 "domain.com" 형식 모두 허용
+                    string domainPattern = rule.Pattern.TrimStart('@');
+                    int atIdx = sender.IndexOf('@');
+                    if (atIdx >= 0)
+                        matched = string.Equals(
+                            sender.Substring(atIdx + 1), domainPattern,
+                            StringComparison.OrdinalIgnoreCase);
+                }
+
+                if (!matched) continue;
+
+                Logger.Debug("ApplySenderRules: matched rule type=" + rule.Type
+                    + " pattern=" + rule.Pattern);
+                return new MailAnalysis
+                {
+                    Priority       = PriorityExtensions.FromString(rule.Priority),
+                    Summary        = "(발신자 규칙 적용)",
+                    PriorityReason = "규칙: " + rule.Type + "=" + rule.Pattern
+                        + (string.IsNullOrEmpty(rule.Note) ? "" : " (" + rule.Note + ")"),
+                    AnalyzedAt     = DateTime.Now,
+                    ModelName      = "(rule)",
+                    IsRuleBased    = true,
+                    IsFallback     = false
+                };
+            }
+            return null;
+        }
+
+        /// <summary>R-04: 메일의 첨부파일명 목록을 쉼표 구분 문자열로 반환한다.</summary>
+        private static string GetAttachmentNames(Outlook.MailItem mail)
+        {
+            Outlook.Attachments atts = null;
+            try
+            {
+                atts = mail.Attachments;
+                if (atts == null || atts.Count == 0) return "";
+
+                var names = new List<string>();
+                for (int i = 1; i <= atts.Count; i++)
+                {
+                    Outlook.Attachment att = null;
+                    try
+                    {
+                        att = atts[i];
+                        // olByValue: 실제 첨부 파일 (embedded 이미지 등 제외)
+                        if (att.Type == Outlook.OlAttachmentType.olByValue)
+                            names.Add(att.FileName);
+                    }
+                    finally
+                    {
+                        ComHelper.Release(att);
+                    }
+                }
+                return string.Join(", ", names);
+            }
+            finally
+            {
+                ComHelper.Release(atts);
+            }
         }
 
         /// <summary>제목에 우선순위 태그 삽입. mail.Save()는 호출하지 않음 — 호출자가 일괄 Save.</summary>

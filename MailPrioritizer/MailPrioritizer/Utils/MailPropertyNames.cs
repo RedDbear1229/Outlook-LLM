@@ -7,5 +7,7 @@ namespace MailPrioritizer.Utils
         public const string Summary        = "LLM_Summary";
         public const string PriorityReason = "LLM_PriorityReason";
         public const string Analyzed       = "LLM_Analyzed";
+        public const string ModelName      = "LLM_ModelName";   // R-07 버전 관리
+        public const string AnalyzedAt     = "LLM_AnalyzedAt";  // R-07 버전 관리
     }
 }

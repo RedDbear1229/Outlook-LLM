@@ -19,6 +19,8 @@ namespace MailPrioritizer
         internal LlmService LlmService { get; private set; }
         internal FolderManager FolderManager { get; private set; }
         internal MailProcessor MailProcessor { get; private set; }
+        internal RetryQueue RetryQueue { get; private set; }
+        internal FeedbackStore FeedbackStore { get; private set; }
 
         // ── Task Pane ──
         private Microsoft.Office.Tools.CustomTaskPane _summaryPane;
@@ -49,15 +51,23 @@ namespace MailPrioritizer
 
             LlmService    = new LlmService(Config);
             FolderManager = new FolderManager(Application, Config);
-            MailProcessor = new MailProcessor(LlmService, FolderManager, Config);
+            RetryQueue    = new RetryQueue();
+            FeedbackStore = new FeedbackStore();
+            MailProcessor = new MailProcessor(LlmService, FolderManager, Config, RetryQueue);
             Logger.Info("Startup: services created");
 
             // Custom Task Pane (우측 패널)
             SummaryControl = new SummaryControl();
             _summaryPane = CustomTaskPanes.Add(SummaryControl, "메일 분석");
             _summaryPane.DockPosition = Office.MsoCTPDockPosition.msoCTPDockPositionRight;
-            _summaryPane.Width   = 320;
-            _summaryPane.Visible = true;
+
+            // R-03: 마지막 상태 복원
+            _summaryPane.Width   = Config.Display.TaskPaneWidth > 0
+                ? Config.Display.TaskPaneWidth : 320;
+            _summaryPane.Visible = Config.Display.TaskPaneVisible;
+
+            // R-03: 상태 변경 시 자동 저장
+            _summaryPane.VisibleChanged += (s, ev) => SaveTaskPaneState();
 
             // SelectionChange 디바운스 타이머 (200ms)
             _selectionDebounceTimer = new System.Windows.Forms.Timer { Interval = 200 };
@@ -74,6 +84,13 @@ namespace MailPrioritizer
 
             // NewMailEx 이벤트 (#11 신규 메일 자동 분석)
             Application.NewMailEx += Application_NewMailEx;
+
+            // R-02: 이전에 실패한 메일 재시도 (비동기, 시작을 블록하지 않음)
+            if (RetryQueue.Count > 0)
+            {
+                Logger.Info("Startup: processing " + RetryQueue.Count + " items in retry queue");
+                ProcessRetryQueueAsync();
+            }
 
             Logger.Info("Startup complete");
         }
@@ -118,6 +135,77 @@ namespace MailPrioritizer
             }
 
             Logger.Info("Shutdown: complete");
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // R-03: Task Pane 상태 저장
+        // ──────────────────────────────────────────────────────────────
+
+        private void SaveTaskPaneState()
+        {
+            try
+            {
+                Config.Display.TaskPaneVisible = _summaryPane.Visible;
+                Config.Display.TaskPaneWidth   = _summaryPane.Width;
+                ConfigManager.Save(Config);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("SaveTaskPaneState failed", ex);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // R-02: 재시도 큐 처리
+        // ──────────────────────────────────────────────────────────────
+
+        private async void ProcessRetryQueueAsync()
+        {
+            var items = RetryQueue.GetAll();
+            foreach (var item in items)
+            {
+                if (item.RetryCount >= RetryQueue.MaxRetries)
+                {
+                    RetryQueue.Remove(item.EntryId);
+                    continue;
+                }
+
+                Outlook.MailItem mail = null;
+                try
+                {
+                    mail = Application.Session.GetItemFromID(item.EntryId) as Outlook.MailItem;
+                    if (mail == null)
+                    {
+                        RetryQueue.Remove(item.EntryId);
+                        continue;
+                    }
+
+                    // 이미 성공 분석된 경우 큐에서 제거
+                    var existing = MailProcessor.LoadExistingAnalysis(mail);
+                    if (existing != null && !existing.IsFallback)
+                    {
+                        RetryQueue.Remove(item.EntryId);
+                        continue;
+                    }
+
+                    // 이전 실패 결과(플래그)를 지우고 재분석
+                    Services.MailProcessor.ClearAnalysisFlag(mail);
+                    var analysis = await MailProcessor.AnalyzeSingleAsync(mail);
+                    if (!analysis.IsFallback)
+                        Logger.Info("ProcessRetryQueue: retry succeeded for entryId=" + item.EntryId);
+                    else
+                        RetryQueue.IncrementRetry(item.EntryId);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("ProcessRetryQueue: failed for entryId=" + item.EntryId, ex);
+                    RetryQueue.IncrementRetry(item.EntryId);
+                }
+                finally
+                {
+                    ComHelper.Release(mail);
+                }
+            }
         }
 
         // ──────────────────────────────────────────────────────────────
@@ -277,6 +365,10 @@ namespace MailPrioritizer
             LlmService.ReloadConfig(newConfig);
             FolderManager.ReloadConfig(newConfig);
             MailProcessor.ReloadConfig(newConfig);
+
+            // R-03: 설정 변경 시 Task Pane 너비도 반영
+            if (_summaryPane != null && newConfig.Display.TaskPaneWidth > 0)
+                _summaryPane.Width = newConfig.Display.TaskPaneWidth;
 
             Logger.Info("ApplyConfigChange: autoAnalyze=" + newConfig.Processing.AutoAnalyzeNewMail
                 + ", targetStore=" + (string.IsNullOrEmpty(newConfig.Processing.TargetStoreId) ? "(default)" : "custom"));

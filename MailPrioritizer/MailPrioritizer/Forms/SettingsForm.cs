@@ -33,6 +33,10 @@ namespace MailPrioritizer.Forms
         private NumericUpDown numMaxBody;
         private ComboBox cmbStore;
         private CheckBox chkAutoAnalyze;
+        private CheckBox chkIncludeAttachments;
+
+        // ── 탭4: 발신자 규칙 ──
+        private DataGridView dgvRules;
 
         private readonly AppConfig _original;
 
@@ -49,7 +53,7 @@ namespace MailPrioritizer.Forms
         private void InitializeComponent()
         {
             this.Text = "환경설정";
-            this.Size = new Size(520, 560);
+            this.Size = new Size(560, 580);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
@@ -60,7 +64,8 @@ namespace MailPrioritizer.Forms
             var tab1 = new TabPage("API 설정");
             var tab2 = new TabPage("프롬프트");
             var tab3 = new TabPage("분류 설정");
-            tabControl.TabPages.AddRange(new[] { tab1, tab2, tab3 });
+            var tab4 = new TabPage("발신자 규칙");
+            tabControl.TabPages.AddRange(new[] { tab1, tab2, tab3, tab4 });
 
             // ── 탭1: API 설정 ──
             tab1.Padding = new Padding(12);
@@ -168,7 +173,85 @@ namespace MailPrioritizer.Forms
             pnl3.Controls.Add(new Label());
             pnl3.Controls.Add(chkAutoAnalyze);
 
+            // 첨부파일명 포함 (R-04)
+            chkIncludeAttachments = new CheckBox { Text = "첨부파일명을 분석 프롬프트에 포함", Dock = DockStyle.Fill, AutoSize = false };
+            pnl3.Controls.Add(new Label());
+            pnl3.Controls.Add(chkIncludeAttachments);
+
             tab3.Controls.Add(pnl3);
+
+            // ── 탭4: 발신자 규칙 (R-01) ──
+            tab4.Padding = new Padding(8);
+            var pnl4 = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+            pnl4.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            pnl4.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            pnl4.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var ruleHint = new Label
+            {
+                Text = "발신자 이메일 또는 도메인에 규칙을 설정하면 LLM 호출 없이 즉시 분류됩니다.",
+                ForeColor = Color.DimGray,
+                Dock = DockStyle.Fill,
+                AutoSize = false,
+                Height = 32
+            };
+
+            dgvRules = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                AllowUserToAddRows = true,
+                AllowUserToDeleteRows = true,
+                RowHeadersVisible = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                Font = new Font("맑은 고딕", 8.5f)
+            };
+
+            var colEnabled = new DataGridViewCheckBoxColumn
+            {
+                Name = "Enabled", HeaderText = "활성", Width = 44, FillWeight = 15
+            };
+            var colType = new DataGridViewComboBoxColumn
+            {
+                Name = "Type", HeaderText = "유형", FillWeight = 20
+            };
+            colType.Items.AddRange(new object[] { "email", "domain" });
+            var colPattern = new DataGridViewTextBoxColumn
+            {
+                Name = "Pattern", HeaderText = "패턴 (이메일 또는 도메인)", FillWeight = 35
+            };
+            var colPriority = new DataGridViewComboBoxColumn
+            {
+                Name = "Priority", HeaderText = "우선순위", FillWeight = 15
+            };
+            colPriority.Items.AddRange(new object[] { "urgent", "high", "normal", "low" });
+            var colNote = new DataGridViewTextBoxColumn
+            {
+                Name = "Note", HeaderText = "메모", FillWeight = 15
+            };
+            dgvRules.Columns.AddRange(new DataGridViewColumn[]
+                { colEnabled, colType, colPattern, colPriority, colNote });
+
+            var btnRowPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight };
+            var btnAddRule = new Button { Text = "+ 규칙 추가", Width = 90, Height = 26 };
+            var btnRemoveRule = new Button { Text = "선택 삭제", Width = 80, Height = 26 };
+            btnAddRule.Click += (s, ev) =>
+            {
+                int row = dgvRules.Rows.Add(true, "email", "", "normal", "");
+                dgvRules.CurrentCell = dgvRules.Rows[row].Cells["Pattern"];
+            };
+            btnRemoveRule.Click += (s, ev) =>
+            {
+                foreach (DataGridViewRow row in dgvRules.SelectedRows)
+                    if (!row.IsNewRow) dgvRules.Rows.Remove(row);
+            };
+            btnRowPanel.Controls.AddRange(new Control[] { btnAddRule, btnRemoveRule });
+
+            pnl4.Controls.Add(ruleHint);
+            pnl4.Controls.Add(dgvRules);
+            pnl4.Controls.Add(btnRowPanel);
+            tab4.Controls.Add(pnl4);
 
             // ── 하단 버튼 ──
             var btnPanel = new FlowLayoutPanel
@@ -212,6 +295,15 @@ namespace MailPrioritizer.Forms
             chkTagSubject.Checked = config.Display.TagSubjectWithPriority;
             numMaxBody.Value     = config.Processing.MaxBodyLength;
             chkAutoAnalyze.Checked = config.Processing.AutoAnalyzeNewMail;
+            chkIncludeAttachments.Checked = config.Processing.IncludeAttachmentNames;
+
+            // 발신자 규칙 복원 (R-01)
+            dgvRules.Rows.Clear();
+            if (config.Rules != null)
+            {
+                foreach (var rule in config.Rules.SenderRules)
+                    dgvRules.Rows.Add(rule.Enabled, rule.Type, rule.Pattern, rule.Priority, rule.Note);
+            }
 
             // 저장소 선택 복원
             string targetId = config.Processing.TargetStoreId ?? "";
@@ -344,11 +436,31 @@ namespace MailPrioritizer.Forms
 
             config.Display.TagSubjectWithPriority = chkTagSubject.Checked;
             config.Processing.MaxBodyLength       = (int)numMaxBody.Value;
-            config.Processing.ConcurrentRequests  = _original.Processing.ConcurrentRequests;
-            config.Processing.AutoAnalyzeNewMail  = chkAutoAnalyze.Checked;
+            config.Processing.ConcurrentRequests     = _original.Processing.ConcurrentRequests;
+            config.Processing.AutoAnalyzeNewMail     = chkAutoAnalyze.Checked;
+            config.Processing.IncludeAttachmentNames = chkIncludeAttachments.Checked;
 
             var selectedStore = cmbStore.SelectedItem as StoreItem;
             config.Processing.TargetStoreId = selectedStore != null ? selectedStore.StoreId : "";
+
+            // 발신자 규칙 수집 (R-01)
+            config.Rules = new Models.RulesConfig();
+            foreach (DataGridViewRow row in dgvRules.Rows)
+            {
+                if (row.IsNewRow) continue;
+                string pattern = row.Cells["Pattern"].Value?.ToString() ?? "";
+                if (string.IsNullOrWhiteSpace(pattern)) continue;
+
+                bool enabled = row.Cells["Enabled"].Value is bool b && b;
+                config.Rules.SenderRules.Add(new Models.SenderRule
+                {
+                    Enabled  = enabled,
+                    Type     = row.Cells["Type"].Value?.ToString() ?? "email",
+                    Pattern  = pattern.Trim(),
+                    Priority = row.Cells["Priority"].Value?.ToString() ?? "normal",
+                    Note     = row.Cells["Note"].Value?.ToString() ?? ""
+                });
+            }
 
             return config;
         }

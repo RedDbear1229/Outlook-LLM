@@ -89,6 +89,8 @@
     <Compile Include="Services\LlmService.cs" />
     <Compile Include="Services\FolderManager.cs" />
     <Compile Include="Services\MailProcessor.cs" />
+    <Compile Include="Services\RetryQueue.cs" />
+    <Compile Include="Services\FeedbackStore.cs" />
     <Compile Include="Ribbon\MailRibbon.cs" />
     <Compile Include="Forms\SettingsForm.cs" />
     <Compile Include="Forms\ProgressForm.cs" />

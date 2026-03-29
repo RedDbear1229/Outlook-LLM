@@ -78,6 +78,7 @@ namespace MailPrioritizer.Services
         /// <summary>메일을 분석하여 요약과 우선순위를 반환한다.</summary>
         public async Task<MailAnalysis> AnalyzeMailAsync(
             string subject, string body, string sender,
+            string attachments = "",
             CancellationToken cancellationToken = default(CancellationToken))
         {
             string truncSubject = subject != null && subject.Length > 50
@@ -88,12 +89,13 @@ namespace MailPrioritizer.Services
             await _throttle.WaitAsync(cancellationToken);
             try
             {
-                string userContent = BuildUserMessage(subject, body, sender);
+                string userContent = BuildUserMessage(subject, body, sender, attachments);
                 string responseText = IsClaudeApi
                     ? await CallClaudeApiAsync(userContent, cancellationToken)
                     : await CallOpenAiApiAsync(userContent, cancellationToken);
 
                 var result = ParseLlmResponse(responseText);
+                result.ModelName = _config.Llm.ModelName;
                 Logger.Info("AnalyzeMailAsync: complete, priority=" + result.Priority);
                 return result;
             }
@@ -315,12 +317,17 @@ namespace MailPrioritizer.Services
             return text.Trim();
         }
 
-        private string BuildUserMessage(string subject, string body, string sender)
+        private string BuildUserMessage(string subject, string body, string sender, string attachments = "")
         {
             int maxLen = _config.Processing.MaxBodyLength;
             string truncatedBody = body != null && body.Length > maxLen
                 ? body.Substring(0, maxLen) + "\n...(이하 생략)"
                 : (body ?? "");
+
+            if (!string.IsNullOrEmpty(attachments))
+                return string.Format(
+                    "발신자: {0}\n제목: {1}\n첨부파일: {2}\n\n본문:\n{3}",
+                    sender ?? "", subject ?? "", attachments, truncatedBody);
 
             return string.Format(
                 "발신자: {0}\n제목: {1}\n\n본문:\n{2}",

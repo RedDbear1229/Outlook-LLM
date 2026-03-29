@@ -17,6 +17,12 @@ namespace MailPrioritizer.Models
         /// <summary>분석 시각.</summary>
         public DateTime AnalyzedAt { get; set; }
 
+        /// <summary>분석에 사용된 모델 이름 (R-07 버전 관리).</summary>
+        public string ModelName { get; set; }
+
+        /// <summary>발신자 규칙으로 분류된 경우 true (LLM 호출 없음).</summary>
+        public bool IsRuleBased { get; set; }
+
         /// <summary>분석 실패 여부 (API 오류 등).</summary>
         public bool IsFallback { get; set; }
 
