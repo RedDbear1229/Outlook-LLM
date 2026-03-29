@@ -156,32 +156,7 @@ namespace MailPrioritizer.TaskPane
 
         private async void OnReanalyzeClick(object sender, EventArgs e)
         {
-            if (string.IsNullOrEmpty(_currentEntryId)) return;
-
-            Outlook.MailItem mail = null;
-            try
-            {
-                mail = Globals.ThisAddIn.Application.Session.GetItemFromID(_currentEntryId)
-                       as Outlook.MailItem;
-                if (mail == null) return;
-
-                ShowAnalyzing();
-
-                // LLM_Analyzed 플래그 초기화 → 강제 재분석
-                Services.MailProcessor.ClearAnalysisFlag(mail);
-
-                var analysis = await Globals.ThisAddIn.MailProcessor.AnalyzeSingleAsync(mail);
-                DisplayAnalysis(mail, analysis);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("OnReanalyzeClick: reanalysis failed", ex);
-                ShowError(ex.Message);
-            }
-            finally
-            {
-                ComHelper.Release(mail);
-            }
+            await RunAnalysisAsync(clearFirst: true);
         }
 
         private void OnMoveFolderClick(object sender, EventArgs e)
@@ -266,6 +241,11 @@ namespace MailPrioritizer.TaskPane
 
         private async void OnAnalyzeNowClick(object sender, EventArgs e)
         {
+            await RunAnalysisAsync(clearFirst: false);
+        }
+
+        private async Task RunAnalysisAsync(bool clearFirst)
+        {
             if (string.IsNullOrEmpty(_currentEntryId)) return;
 
             Outlook.MailItem mail = null;
@@ -275,13 +255,16 @@ namespace MailPrioritizer.TaskPane
                        as Outlook.MailItem;
                 if (mail == null) return;
 
+                if (clearFirst)
+                    Services.MailProcessor.ClearAnalysisFlag(mail);
+
                 ShowAnalyzing();
                 var analysis = await Globals.ThisAddIn.MailProcessor.AnalyzeSingleAsync(mail);
                 DisplayAnalysis(mail, analysis);
             }
             catch (Exception ex)
             {
-                Logger.Error("OnAnalyzeNowClick: analysis failed", ex);
+                Logger.Error("RunAnalysisAsync: analysis failed", ex);
                 ShowError(ex.Message);
             }
             finally

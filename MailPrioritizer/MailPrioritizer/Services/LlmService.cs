@@ -21,6 +21,7 @@ namespace MailPrioritizer.Services
         private HttpClient _httpClient;
         private AppConfig _config;
         private SemaphoreSlim _throttle;
+        private int _concurrentRequests;
         private bool _disposed;
 
         internal static readonly string DefaultSystemPrompt =
@@ -36,7 +37,8 @@ namespace MailPrioritizer.Services
         public LlmService(AppConfig config)
         {
             _config = config;
-            _throttle = new SemaphoreSlim(config.Processing.ConcurrentRequests);
+            _concurrentRequests = config.Processing.ConcurrentRequests;
+            _throttle = new SemaphoreSlim(_concurrentRequests);
             _httpClient = CreateHttpClient(config);
         }
 
@@ -47,11 +49,11 @@ namespace MailPrioritizer.Services
             _httpClient = CreateHttpClient(newConfig);
             oldClient.Dispose();
 
-            // 동시성 제한이 변경되면 SemaphoreSlim 재생성
-            if (_throttle.CurrentCount != newConfig.Processing.ConcurrentRequests)
+            if (_concurrentRequests != newConfig.Processing.ConcurrentRequests)
             {
+                _concurrentRequests = newConfig.Processing.ConcurrentRequests;
                 var oldThrottle = _throttle;
-                _throttle = new SemaphoreSlim(newConfig.Processing.ConcurrentRequests);
+                _throttle = new SemaphoreSlim(_concurrentRequests);
                 oldThrottle.Dispose();
             }
         }

@@ -66,11 +66,7 @@ namespace MailPrioritizer.Services
             if (ruleAnalysis != null)
             {
                 Logger.Info("AnalyzeSingleAsync: rule matched, priority=" + ruleAnalysis.Priority);
-                if (_config.Display.TagSubjectWithPriority)
-                    TagSubject(mail, ruleAnalysis.Priority);
-                SaveAnalysisToMail(mail, ruleAnalysis);
-                if (_config.Classification.AutoMoveToFolder)
-                    _folderManager.MoveToFolder(mail, ruleAnalysis.Priority);
+                ApplyAnalysisToMail(mail, ruleAnalysis);
                 return ruleAnalysis;
             }
 
@@ -89,13 +85,7 @@ namespace MailPrioritizer.Services
 
             // STA 스레드로 복귀 후 COM 작업 (실패한 결과는 저장하지 않음)
             if (!analysis.IsFallback)
-            {
-                if (_config.Display.TagSubjectWithPriority)
-                    TagSubject(mail, analysis.Priority);
-                SaveAnalysisToMail(mail, analysis);
-                if (_config.Classification.AutoMoveToFolder)
-                    _folderManager.MoveToFolder(mail, analysis.Priority);
-            }
+                ApplyAnalysisToMail(mail, analysis);
 
             Logger.Info("AnalyzeSingleAsync: complete, priority=" + analysis.Priority
                 + (analysis.IsFallback ? " (fallback)" : ""));
@@ -107,6 +97,7 @@ namespace MailPrioritizer.Services
         // ──────────────────────────────────────────────────────────────
 
         private const int ConsecutiveFailureThreshold = 5;
+        private const string RuleBasedModelName = "(rule)";
 
         public class BatchProgress
         {
@@ -166,11 +157,7 @@ namespace MailPrioritizer.Services
                         if (ruleResult != null)
                         {
                             Logger.Debug("AnalyzeInboxAsync: rule matched for \"" + mail.Subject + "\"");
-                            if (_config.Display.TagSubjectWithPriority)
-                                TagSubject(mail, ruleResult.Priority);
-                            SaveAnalysisToMail(mail, ruleResult);
-                            if (_config.Classification.AutoMoveToFolder)
-                                _folderManager.MoveToFolder(mail, ruleResult.Priority);
+                            ApplyAnalysisToMail(mail, ruleResult);
 
                             // 규칙 적용 결과를 분석 카운터에 반영
                             switch (ruleResult.Priority)
@@ -250,13 +237,7 @@ namespace MailPrioritizer.Services
                     {
                         freshMail = outlookApp.Session.GetItemFromID(item.EntryId) as Outlook.MailItem;
                         if (freshMail != null && !analysis.IsFallback)
-                        {
-                            if (_config.Display.TagSubjectWithPriority)
-                                TagSubject(freshMail, analysis.Priority);
-                            SaveAnalysisToMail(freshMail, analysis);
-                            if (_config.Classification.AutoMoveToFolder)
-                                _folderManager.MoveToFolder(freshMail, analysis.Priority);
-                        }
+                            ApplyAnalysisToMail(freshMail, analysis);
                     }
                     catch (Exception ex)
                     {
@@ -267,11 +248,6 @@ namespace MailPrioritizer.Services
                         ComHelper.Release(freshMail);
                     }
 
-                    // R-02: 실패 시 재시도 큐에 등록
-                    if (analysis.IsFallback && _retryQueue != null)
-                        _retryQueue.Enqueue(item.EntryId);
-
-                    bool success = false;
                     if (!analysis.IsFallback)
                     {
                         switch (analysis.Priority)
@@ -281,21 +257,14 @@ namespace MailPrioritizer.Services
                             case Priority.Normal: result.Normal++; break;
                             case Priority.Low:    result.Low++;    break;
                         }
-                        success = true;
-                    }
-                    else
-                    {
-                        result.Failed++;
-                        result.FailedSubjects.Add(item.Subject);
-                    }
-
-                    // 연속 실패 감지
-                    if (success)
-                    {
                         consecutiveFailures = 0;
                     }
                     else
                     {
+                        if (_retryQueue != null)
+                            _retryQueue.Enqueue(item.EntryId);
+                        result.Failed++;
+                        result.FailedSubjects.Add(item.Subject);
                         consecutiveFailures++;
                         if (consecutiveFailures >= ConsecutiveFailureThreshold)
                         {
@@ -373,7 +342,7 @@ namespace MailPrioritizer.Services
                 // R-07: 분석 버전 메타데이터
                 propModelName = props.Find(MailPropertyNames.ModelName) ??
                                 props.Add(MailPropertyNames.ModelName, Outlook.OlUserPropertyType.olText);
-                propModelName.Value = analysis.ModelName ?? (analysis.IsRuleBased ? "(rule)" : "");
+                propModelName.Value = analysis.ModelName ?? (analysis.IsRuleBased ? RuleBasedModelName : "");
 
                 propAnalyzedAt = props.Find(MailPropertyNames.AnalyzedAt) ??
                                  props.Add(MailPropertyNames.AnalyzedAt, Outlook.OlUserPropertyType.olText);
@@ -398,11 +367,13 @@ namespace MailPrioritizer.Services
         /// </summary>
         public MailAnalysis LoadExistingAnalysis(Outlook.MailItem mail)
         {
-            Outlook.UserProperties props = null;
-            Outlook.UserProperty propAnalyzed = null;
-            Outlook.UserProperty propPriority = null;
-            Outlook.UserProperty propSummary  = null;
-            Outlook.UserProperty propReason   = null;
+            Outlook.UserProperties props     = null;
+            Outlook.UserProperty propAnalyzed  = null;
+            Outlook.UserProperty propPriority  = null;
+            Outlook.UserProperty propSummary   = null;
+            Outlook.UserProperty propReason    = null;
+            Outlook.UserProperty propModelName  = null;
+            Outlook.UserProperty propAnalyzedAt = null;
 
             try
             {
@@ -412,19 +383,17 @@ namespace MailPrioritizer.Services
                 if (propAnalyzed == null || !IsAnalyzed(propAnalyzed.Value))
                     return null;
 
-                propPriority = props.Find(MailPropertyNames.Priority);
-                propSummary  = props.Find(MailPropertyNames.Summary);
-                propReason   = props.Find(MailPropertyNames.PriorityReason);
+                propPriority   = props.Find(MailPropertyNames.Priority);
+                propSummary    = props.Find(MailPropertyNames.Summary);
+                propReason     = props.Find(MailPropertyNames.PriorityReason);
+                propModelName  = props.Find(MailPropertyNames.ModelName);
+                propAnalyzedAt = props.Find(MailPropertyNames.AnalyzedAt);
 
-                // R-07: 버전 메타데이터 읽기
-                var propModelName  = props.Find(MailPropertyNames.ModelName);
-                var propAnalyzedAt = props.Find(MailPropertyNames.AnalyzedAt);
                 string modelName = propModelName?.Value?.ToString() ?? "";
                 DateTime analyzedAt = DateTime.Now;
                 string analyzedAtStr = propAnalyzedAt?.Value?.ToString() ?? "";
                 if (!string.IsNullOrEmpty(analyzedAtStr))
                     DateTime.TryParse(analyzedAtStr, out analyzedAt);
-                ComHelper.ReleaseAll(propAnalyzedAt, propModelName);
 
                 return new MailAnalysis
                 {
@@ -433,13 +402,14 @@ namespace MailPrioritizer.Services
                     PriorityReason = propReason?.Value?.ToString() ?? "",
                     AnalyzedAt     = analyzedAt,
                     ModelName      = modelName,
-                    IsRuleBased    = modelName == "(rule)",
+                    IsRuleBased    = modelName == RuleBasedModelName,
                     IsFallback     = false
                 };
             }
             finally
             {
-                ComHelper.ReleaseAll(propReason, propSummary, propPriority, propAnalyzed, props);
+                ComHelper.ReleaseAll(propAnalyzedAt, propModelName,
+                    propReason, propSummary, propPriority, propAnalyzed, props);
             }
         }
 
@@ -519,7 +489,7 @@ namespace MailPrioritizer.Services
                     PriorityReason = "규칙: " + rule.Type + "=" + rule.Pattern
                         + (string.IsNullOrEmpty(rule.Note) ? "" : " (" + rule.Note + ")"),
                     AnalyzedAt     = DateTime.Now,
-                    ModelName      = "(rule)",
+                    ModelName      = RuleBasedModelName,
                     IsRuleBased    = true,
                     IsFallback     = false
                 };
@@ -568,6 +538,16 @@ namespace MailPrioritizer.Services
             {
                 mail.Subject = tag + mail.Subject;
             }
+        }
+
+        /// <summary>태그 삽입 → UserProperty 저장 → 폴더 이동의 공통 3단계 시퀀스.</summary>
+        private void ApplyAnalysisToMail(Outlook.MailItem mail, MailAnalysis analysis)
+        {
+            if (_config.Display.TagSubjectWithPriority)
+                TagSubject(mail, analysis.Priority);
+            SaveAnalysisToMail(mail, analysis);
+            if (_config.Classification.AutoMoveToFolder)
+                _folderManager.MoveToFolder(mail, analysis.Priority);
         }
 
         /// <summary>DASL 필터로 UserProperty 기반 검색에 사용하는 프로퍼티 태그.</summary>
@@ -752,18 +732,22 @@ namespace MailPrioritizer.Services
                         continue;
                     }
 
+                    Outlook.UserProperties props = null;
+                    Outlook.UserProperty propAnalyzed = null;
                     try
                     {
-                        var existing = LoadExistingAnalysis(mail);
-                        if (existing != null)
+                        props = mail.UserProperties;
+                        propAnalyzed = props.Find(MailPropertyNames.Analyzed);
+                        if (propAnalyzed != null && IsAnalyzed(propAnalyzed.Value))
                         {
-                            ClearAnalysisFlag(mail);
+                            propAnalyzed.Value = false;
+                            mail.Save();
                             count++;
                         }
                     }
                     finally
                     {
-                        ComHelper.Release(mail);
+                        ComHelper.ReleaseAll(propAnalyzed, props, mail);
                     }
                 }
             }

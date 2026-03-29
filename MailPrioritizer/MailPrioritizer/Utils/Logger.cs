@@ -23,7 +23,7 @@ namespace MailPrioritizer.Utils
         private const string FileSuffix = ".log";
         private const int RetentionDays = 7;
 
-        private static bool _initialized;
+        private static volatile bool _initialized;
 
         public static LogLevel MinLevel { get; set; } = LogLevel.Info;
 

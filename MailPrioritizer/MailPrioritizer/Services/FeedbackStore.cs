@@ -19,7 +19,7 @@ namespace MailPrioritizer.Services
             "MailPrioritizer", "feedback.json");
 
         private List<FeedbackItem> _items;
-        private static readonly object _lock = new object();
+        private readonly object _lock = new object();
 
         public class FeedbackItem
         {

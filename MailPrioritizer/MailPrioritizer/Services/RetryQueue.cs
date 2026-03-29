@@ -18,7 +18,7 @@ namespace MailPrioritizer.Services
             "MailPrioritizer", "retry_queue.json");
 
         private List<RetryItem> _items;
-        private static readonly object _lock = new object();
+        private readonly object _lock = new object();
 
         public const int MaxRetries = 3;
 

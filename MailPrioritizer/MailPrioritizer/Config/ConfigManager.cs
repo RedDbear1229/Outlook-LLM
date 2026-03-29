@@ -92,8 +92,7 @@ namespace MailPrioritizer.Config
 
         private void EnsureDirectory()
         {
-            if (!Directory.Exists(ConfigDir))
-                Directory.CreateDirectory(ConfigDir);
+            Directory.CreateDirectory(ConfigDir);
         }
 
         private static string EncryptToken(string plainText)

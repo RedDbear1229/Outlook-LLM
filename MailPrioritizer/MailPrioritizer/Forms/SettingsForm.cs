@@ -383,9 +383,9 @@ namespace MailPrioritizer.Forms
                 testConfig.Llm.ApiToken = txtToken.Text;
                 using (var svc = new LlmService(testConfig))
                 {
-                var result = await svc.TestConnectionAsync();
-                lblTestResult.Text      = result.Item1 ? "✅ " + result.Item2 : "❌ " + result.Item2;
-                lblTestResult.ForeColor = result.Item1 ? Color.Green : Color.Red;
+                    var result = await svc.TestConnectionAsync();
+                    lblTestResult.Text      = result.Item1 ? "✅ " + result.Item2 : "❌ " + result.Item2;
+                    lblTestResult.ForeColor = result.Item1 ? Color.Green : Color.Red;
                 }
             }
             catch (Exception ex)
@@ -435,6 +435,8 @@ namespace MailPrioritizer.Forms
             config.Classification.FolderNames        = _original.Classification.FolderNames;
 
             config.Display.TagSubjectWithPriority = chkTagSubject.Checked;
+            config.Display.TaskPaneVisible = _original.Display.TaskPaneVisible;
+            config.Display.TaskPaneWidth   = _original.Display.TaskPaneWidth;
             config.Processing.MaxBodyLength       = (int)numMaxBody.Value;
             config.Processing.ConcurrentRequests     = _original.Processing.ConcurrentRequests;
             config.Processing.AutoAnalyzeNewMail     = chkAutoAnalyze.Checked;

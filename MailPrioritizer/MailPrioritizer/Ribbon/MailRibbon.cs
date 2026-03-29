@@ -45,11 +45,12 @@ namespace MailPrioritizer.Ribbon
         {
             if (!EnsureConfigured(sender, e)) return;
 
+            Microsoft.Office.Interop.Outlook.Explorer explorer = null;
             Microsoft.Office.Interop.Outlook.Selection selection = null;
             Microsoft.Office.Interop.Outlook.MailItem mail = null;
             try
             {
-                var explorer = Globals.ThisAddIn.Application.ActiveExplorer();
+                explorer = Globals.ThisAddIn.Application.ActiveExplorer();
                 if (explorer == null) return;
                 selection = explorer.Selection;
                 if (selection.Count == 0)
@@ -81,7 +82,7 @@ namespace MailPrioritizer.Ribbon
             }
             finally
             {
-                ComHelper.ReleaseAll(mail, selection);
+                ComHelper.ReleaseAll(mail, selection, explorer);
             }
         }
 
@@ -108,8 +109,6 @@ namespace MailPrioritizer.Ribbon
                     var result = await Globals.ThisAddIn.MailProcessor.AnalyzeInboxAsync(
                         Globals.ThisAddIn.Application, progress, cts.Token);
 
-                    progressForm.Close();
-
                     string summary = string.Format(
                         "분석 완료!\n\n긴급: {0}건\n높음: {1}건\n보통: {2}건\n낮음: {3}건\n실패: {4}건",
                         result.Urgent, result.High, result.Normal, result.Low, result.Failed);
@@ -128,6 +127,7 @@ namespace MailPrioritizer.Ribbon
                             summary += string.Format("\n  ...외 {0}건", result.FailedSubjects.Count - 10);
                     }
 
+                    progressForm.Close();
                     MessageBox.Show(summary,
                         "MailPrioritizer — 완료",
                         MessageBoxButtons.OK,
