@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui"
+          onLoad="Ribbon_Load">
+  <ribbon>
+    <tabs>
+      <tab id="tabMailPrioritizer" label="메일 분석">
+
+        <group id="grpSettings" label="설정">
+          <button id="btnSettings"
+                  label="환경설정"
+                  screentip="LLM API 설정 및 분류 옵션"
+                  supertip="Endpoint URL, API Token, 모델, 프롬프트, 폴더 설정을 변경합니다."
+                  imageMso="PropertySheet"
+                  size="large"
+                  onAction="OnSettingsClick"/>
+        </group>
+
+        <group id="grpAnalysis" label="분석">
+          <button id="btnAnalyzeSelected"
+                  label="선택 메일 요약"
+                  screentip="선택된 메일 1건 분석"
+                  supertip="현재 선택된 메일을 LLM으로 요약하고 우선순위를 판단합니다. 결과는 우측 패널에 표시됩니다."
+                  imageMso="InspectDocument"
+                  size="large"
+                  onAction="OnAnalyzeSelectedClick"/>
+          <button id="btnAnalyzeAll"
+                  label="받은편지함 전체 분류"
+                  screentip="받은편지함 미분류 메일 일괄 분석"
+                  supertip="받은편지함에서 아직 분석되지 않은 메일을 모두 분석하여 우선순위 폴더로 이동합니다."
+                  imageMso="MailMergeStartLetters"
+                  size="large"
+                  onAction="OnAnalyzeAllClick"/>
+          <button id="btnReanalyzeAll"
+                  label="전체 재분석"
+                  screentip="기존 분석 결과를 초기화하고 전체 재분석"
+                  supertip="받은편지함의 모든 메일(이미 분석된 메일 포함)의 분석 플래그를 초기화한 뒤 전체를 재분석합니다."
+                  imageMso="RecurrenceEdit"
+                  size="normal"
+                  onAction="OnReanalyzeAllClick"/>
+          <button id="btnExportResults"
+                  label="결과 내보내기"
+                  screentip="분석 결과를 CSV로 내보내기"
+                  supertip="받은편지함의 분석된 메일 결과를 CSV 파일로 저장합니다."
+                  imageMso="ExportSavedExports"
+                  size="normal"
+                  onAction="OnExportResultsClick"/>
+        </group>
+
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

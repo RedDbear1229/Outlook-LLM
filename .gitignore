@@ -1,0 +1,27 @@
+# Build output
+MailPrioritizer/MailPrioritizer/bin/
+MailPrioritizer/MailPrioritizer/obj/
+MailPrioritizer/MailPrioritizer/.vs/
+MailPrioritizer/.vs/
+
+# NuGet packages (restored on build)
+MailPrioritizer/packages/
+
+# User-specific Visual Studio files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# VSTO publish output
+MailPrioritizer/MailPrioritizer/publish/
+*.vsto
+*.application
+*.manifest
+
+# Runtime config (contains encrypted API token — never commit)
+$HOME/
+
+# OS
+.DS_Store
+Thumbs.db
