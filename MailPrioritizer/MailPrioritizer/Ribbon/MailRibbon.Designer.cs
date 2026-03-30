@@ -4,31 +4,17 @@
 
 namespace MailPrioritizer.Ribbon
 {
-    partial class MailRibbon : Microsoft.Office.Tools.Ribbon.RibbonBase
+    partial class MailRibbon
     {
-        private System.ComponentModel.IContainer components = null;
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing && (components != null))
-                components.Dispose();
-            base.Dispose(disposing);
-        }
-
-        #region Component Designer generated code
-
-        private void InitializeComponent()
-        {
-            this.Name = "MailRibbon";
-        }
-
-        #endregion
-
         /// <summary>
-        /// VSTO XML Ribbon — EmbeddedResource에서 XML을 읽어 반환.
-        /// RibbonBase.GetResourceText()를 override해서 XML 내용 전달.
+        /// IRibbonExtensibility.GetCustomUI — EmbeddedResource에서 XML을 읽어 반환.
         /// </summary>
-        public override string GetResourceText(string resourceName)
+        public string GetCustomUI(string ribbonID)
+        {
+            return GetResourceText("MailPrioritizer.Ribbon.MailRibbon.xml");
+        }
+
+        private static string GetResourceText(string resourceName)
         {
             var asm = System.Reflection.Assembly.GetExecutingAssembly();
             foreach (string name in asm.GetManifestResourceNames())

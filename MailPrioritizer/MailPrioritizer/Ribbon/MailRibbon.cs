@@ -1,18 +1,23 @@
 using System;
 using System.Windows.Forms;
 using MailPrioritizer.Utils;
-using Microsoft.Office.Tools.Ribbon;
+using Office = Microsoft.Office.Core;
 
 namespace MailPrioritizer.Ribbon
 {
-    public partial class MailRibbon : RibbonBase
+    public partial class MailRibbon : Office.IRibbonExtensibility
     {
-        public MailRibbon() : base(Globals.Factory.GetRibbonFactory()) { }
+        private Office.IRibbonUI _ribbon;
 
-        private void Ribbon_Load(object sender, RibbonUIEventArgs e) { }
+        public MailRibbon() { }
+
+        public void Ribbon_Load(Office.IRibbonUI ribbonUI)
+        {
+            _ribbon = ribbonUI;
+        }
 
         /// <summary>API 미설정 시 안내 메시지 표시 후 설정 창 열기. 설정 완료 여부 반환.</summary>
-        private bool EnsureConfigured(object sender, RibbonControlEventArgs e)
+        private bool EnsureConfigured(Office.IRibbonControl control)
         {
             if (Globals.ThisAddIn.IsConfigured()) return true;
             MessageBox.Show(
@@ -20,14 +25,14 @@ namespace MailPrioritizer.Ribbon
                 "MailPrioritizer",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
-            OnSettingsClick(sender, e);
+            OnSettingsClick(control);
             return false;
         }
 
         // ──────────────────────────────────────────────────────────────
         // 환경설정
         // ──────────────────────────────────────────────────────────────
-        public void OnSettingsClick(object sender, RibbonControlEventArgs e)
+        public void OnSettingsClick(Office.IRibbonControl control)
         {
             using (var form = new Forms.SettingsForm(Globals.ThisAddIn.Config))
             {
@@ -41,9 +46,9 @@ namespace MailPrioritizer.Ribbon
         // ──────────────────────────────────────────────────────────────
         // 선택 메일 요약
         // ──────────────────────────────────────────────────────────────
-        public async void OnAnalyzeSelectedClick(object sender, RibbonControlEventArgs e)
+        public async void OnAnalyzeSelectedClick(Office.IRibbonControl control)
         {
-            if (!EnsureConfigured(sender, e)) return;
+            if (!EnsureConfigured(control)) return;
 
             Microsoft.Office.Interop.Outlook.Explorer explorer = null;
             Microsoft.Office.Interop.Outlook.Selection selection = null;
@@ -89,9 +94,9 @@ namespace MailPrioritizer.Ribbon
         // ──────────────────────────────────────────────────────────────
         // 받은편지함 전체 분류
         // ──────────────────────────────────────────────────────────────
-        public async void OnAnalyzeAllClick(object sender, RibbonControlEventArgs e)
+        public async void OnAnalyzeAllClick(Office.IRibbonControl control)
         {
-            if (!EnsureConfigured(sender, e)) return;
+            if (!EnsureConfigured(control)) return;
 
             using (var progressForm = new Forms.ProgressForm())
             {
@@ -150,11 +155,11 @@ namespace MailPrioritizer.Ribbon
         }
 
         // ──────────────────────────────────────────────────────────────
-        // 전체 재분석 (#7)
+        // 전체 재분석
         // ──────────────────────────────────────────────────────────────
-        public async void OnReanalyzeAllClick(object sender, RibbonControlEventArgs e)
+        public void OnReanalyzeAllClick(Office.IRibbonControl control)
         {
-            if (!EnsureConfigured(sender, e)) return;
+            if (!EnsureConfigured(control)) return;
 
             var answer = MessageBox.Show(
                 "받은편지함의 모든 메일 분석 플래그를 초기화하고 전체 재분석을 실행합니다.\n계속하시겠습니까?",
@@ -168,13 +173,13 @@ namespace MailPrioritizer.Ribbon
             Logger.Info("OnReanalyzeAllClick: reset " + resetCount + " mails, starting batch analysis");
 
             // 리셋 후 일괄 분석 실행 (OnAnalyzeAllClick과 동일 흐름)
-            OnAnalyzeAllClick(sender, e);
+            OnAnalyzeAllClick(control);
         }
 
         // ──────────────────────────────────────────────────────────────
-        // 결과 내보내기 (#12)
+        // 결과 내보내기
         // ──────────────────────────────────────────────────────────────
-        public void OnExportResultsClick(object sender, RibbonControlEventArgs e)
+        public void OnExportResultsClick(Office.IRibbonControl control)
         {
             using (var dialog = new SaveFileDialog())
             {
