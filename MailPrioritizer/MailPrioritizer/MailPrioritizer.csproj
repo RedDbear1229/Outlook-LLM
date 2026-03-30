@@ -4,6 +4,7 @@
           Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <VSToolsPath>C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Microsoft\VisualStudio\v17.0</VSToolsPath>
+    <VSTORefPath>C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\ReferenceAssemblies\v4.0</VSTORefPath>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>
@@ -61,19 +62,19 @@
       <EmbedInteropTypes>true</EmbedInteropTypes>
     </Reference>
     <Reference Include="Microsoft.Office.Tools">
-      <HintPath>$(VSToolsPath)\VSTO\Microsoft.Office.Tools.dll</HintPath>
+      <HintPath>$(VSTORefPath)\Microsoft.Office.Tools.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Office.Tools.Common">
-      <HintPath>$(VSToolsPath)\VSTO\Microsoft.Office.Tools.Common.dll</HintPath>
+      <HintPath>$(VSTORefPath)\Microsoft.Office.Tools.Common.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Office.Tools.Common.v4.0.Utilities">
-      <HintPath>$(VSToolsPath)\VSTO\Microsoft.Office.Tools.Common.v4.0.Utilities.dll</HintPath>
+      <HintPath>$(VSTORefPath)\Microsoft.Office.Tools.Common.v4.0.Utilities.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Office.Tools.Outlook">
-      <HintPath>$(VSToolsPath)\VSTO\Microsoft.Office.Tools.Outlook.dll</HintPath>
+      <HintPath>$(VSTORefPath)\Microsoft.Office.Tools.Outlook.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.VisualStudio.Tools.Applications.Runtime">
-      <HintPath>$(VSToolsPath)\VSTO\Microsoft.VisualStudio.Tools.Applications.Runtime.dll</HintPath>
+      <HintPath>$(VSTORefPath)\Microsoft.VisualStudio.Tools.Applications.Runtime.dll</HintPath>
     </Reference>
   </ItemGroup>
 
@@ -125,5 +126,5 @@
 
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="$(VSToolsPath)\VSTO\Microsoft.VisualStudio.Tools.Applications.targets"
-          Condition="'$(VSToolsPath)' != ''" />
+          Condition="'$(VSToolsPath)' != '' And Exists('$(VSToolsPath)\VSTO\Microsoft.VisualStudio.Tools.Applications.targets')" />
 </Project>
