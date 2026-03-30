@@ -60,19 +60,19 @@
       <EmbedInteropTypes>true</EmbedInteropTypes>
     </Reference>
     <Reference Include="Microsoft.Office.Tools">
-      <HintPath>$(VSToolsPath)\VSTO\v4.0\Microsoft.Office.Tools.dll</HintPath>
+      <HintPath>$(VSToolsPath)\VSTO\Microsoft.Office.Tools.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Office.Tools.Common">
-      <HintPath>$(VSToolsPath)\VSTO\v4.0\Microsoft.Office.Tools.Common.dll</HintPath>
+      <HintPath>$(VSToolsPath)\VSTO\Microsoft.Office.Tools.Common.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Office.Tools.Common.v4.0.Utilities">
-      <HintPath>$(VSToolsPath)\VSTO\v4.0\Microsoft.Office.Tools.Common.v4.0.Utilities.dll</HintPath>
+      <HintPath>$(VSToolsPath)\VSTO\Microsoft.Office.Tools.Common.v4.0.Utilities.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Office.Tools.Outlook">
-      <HintPath>$(VSToolsPath)\VSTO\v4.0\Microsoft.Office.Tools.Outlook.dll</HintPath>
+      <HintPath>$(VSToolsPath)\VSTO\Microsoft.Office.Tools.Outlook.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.VisualStudio.Tools.Applications.Runtime">
-      <HintPath>$(VSToolsPath)\VSTO\v4.0\Microsoft.VisualStudio.Tools.Applications.Runtime.dll</HintPath>
+      <HintPath>$(VSToolsPath)\VSTO\Microsoft.VisualStudio.Tools.Applications.Runtime.dll</HintPath>
     </Reference>
   </ItemGroup>
 
