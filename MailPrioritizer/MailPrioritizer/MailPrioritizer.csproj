@@ -18,8 +18,7 @@
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <LangVersion>7.3</LangVersion>
     <FileAlignment>512</FileAlignment>
-    <!-- VSTO 워크로드 설치 시: {BAA0C2D2-18E2-41B9-852F-F413020CAA33};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC} -->
-    <ProjectTypeGuids>{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
+    <ProjectTypeGuids>{BAA0C2D2-18E2-41B9-852F-F413020CAA33};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <OfficeApplication>Outlook</OfficeApplication>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
@@ -55,9 +54,6 @@
     <Reference Include="System.Xml" />
 
     <!-- Office / VSTO 참조 -->
-    <Reference Include="Microsoft.Office.Core">
-      <EmbedInteropTypes>true</EmbedInteropTypes>
-    </Reference>
     <Reference Include="Microsoft.Office.Interop.Outlook">
       <EmbedInteropTypes>true</EmbedInteropTypes>
     </Reference>
