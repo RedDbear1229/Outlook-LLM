@@ -11,7 +11,7 @@ using Outlook = Microsoft.Office.Interop.Outlook;
 
 namespace MailPrioritizer
 {
-    public partial class ThisAddIn : Microsoft.Office.Tools.Outlook.AddInBase
+    public partial class ThisAddIn
     {
         // ── 서비스 (ThisAddIn이 소유, Ribbon/Form에서 Globals.ThisAddIn으로 접근) ──
         internal ConfigManager ConfigManager { get; private set; }
