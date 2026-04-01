@@ -63,7 +63,7 @@
     </Reference>
     <Reference Include="office, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c">
       <HintPath>..\packages\Microsoft.Office.Interop.Outlook.15.0.4797.1004\lib\net20\office.dll</HintPath>
-      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
     </Reference>
     <Reference Include="Microsoft.Office.Tools">
       <HintPath>$(VSTORefPath)\Microsoft.Office.Tools.dll</HintPath>
