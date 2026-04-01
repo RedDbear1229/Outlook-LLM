@@ -332,10 +332,18 @@ namespace MailPrioritizer.TaskPane
 
         private void SafeInvoke(Action action)
         {
-            if (IsHandleCreated && InvokeRequired)
-                Invoke(action);
+            if (IsDisposed || !IsHandleCreated) return;
+
+            if (InvokeRequired)
+            {
+                try { Invoke(action); }
+                catch (ObjectDisposedException) { }
+                catch (InvalidOperationException) { }
+            }
             else
+            {
                 action();
+            }
         }
 
         // ──────────────────────────────────────────────────────────────

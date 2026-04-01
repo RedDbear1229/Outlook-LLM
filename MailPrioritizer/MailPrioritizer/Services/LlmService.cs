@@ -248,6 +248,9 @@ namespace MailPrioritizer.Services
             HttpResponseMessage response = null;
             for (int attempt = 0; attempt <= maxRetries; attempt++)
             {
+                response?.Dispose();
+                response = null;
+
                 response = await _httpClient.SendAsync(factory(), ct);
                 int statusCode = (int)response.StatusCode;
 

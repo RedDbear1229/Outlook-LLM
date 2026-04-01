@@ -4,7 +4,10 @@
           Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <VSToolsPath>C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Microsoft\VisualStudio\v17.0</VSToolsPath>
-    <VSTORefPath>C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\ReferenceAssemblies\v4.0</VSTORefPath>
+    <!-- VS edition 자동 탐색: Professional → Community → Enterprise -->
+    <VSTORefPath Condition="Exists('C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\ReferenceAssemblies\v4.0')">C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\ReferenceAssemblies\v4.0</VSTORefPath>
+    <VSTORefPath Condition="'$(VSTORefPath)' == '' And Exists('C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\ReferenceAssemblies\v4.0')">C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\ReferenceAssemblies\v4.0</VSTORefPath>
+    <VSTORefPath Condition="'$(VSTORefPath)' == '' And Exists('C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\ReferenceAssemblies\v4.0')">C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\ReferenceAssemblies\v4.0</VSTORefPath>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>
@@ -53,8 +56,13 @@
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
 
-    <!-- Office / VSTO 참조 -->
+    <!-- Office / VSTO 참조 (NuGet 패키지 기반) -->
     <Reference Include="Microsoft.Office.Interop.Outlook">
+      <HintPath>..\packages\Microsoft.Office.Interop.Outlook.15.0.4797.1004\lib\net20\Microsoft.Office.Interop.Outlook.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="office, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c">
+      <HintPath>..\packages\Microsoft.Office.Interop.Outlook.15.0.4797.1004\lib\net20\office.dll</HintPath>
       <EmbedInteropTypes>true</EmbedInteropTypes>
     </Reference>
     <Reference Include="Microsoft.Office.Tools">

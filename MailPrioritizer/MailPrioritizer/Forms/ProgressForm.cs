@@ -97,7 +97,12 @@ namespace MailPrioritizer.Forms
 
             if (InvokeRequired)
             {
-                Invoke(new Action<MailProcessor.BatchProgress>(UpdateProgress), progress);
+                try
+                {
+                    Invoke(new Action<MailProcessor.BatchProgress>(UpdateProgress), progress);
+                }
+                catch (ObjectDisposedException) { }
+                catch (InvalidOperationException) { }
                 return;
             }
 

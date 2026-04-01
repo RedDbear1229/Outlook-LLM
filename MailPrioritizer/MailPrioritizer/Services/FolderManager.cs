@@ -116,9 +116,10 @@ namespace MailPrioritizer.Services
             {
                 return folders[name];
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                Logger.Info("FindOrCreateFolder: creating new folder \"" + name + "\"");
+                Logger.Info("FindOrCreateFolder: folder \"" + name + "\" not found ("
+                    + ex.GetType().Name + "), creating it");
                 return folders.Add(name, Outlook.OlDefaultFolders.olFolderInbox);
             }
         }

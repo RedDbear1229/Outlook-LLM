@@ -13,6 +13,9 @@ namespace MailPrioritizer.Services
     /// <summary>메일 분석 핵심 엔진. LLM 호출 → UserProperty 저장 → 폴더 이동.</summary>
     public class MailProcessor
     {
+        private const int BatchSizeMultiplier = 5;
+        private const int MinBatchSize = 15;
+
         private readonly LlmService _llmService;
         private readonly FolderManager _folderManager;
         private AppConfig _config;
@@ -131,7 +134,7 @@ namespace MailPrioritizer.Services
 
             int consecutiveFailures = 0;
             // 배치 크기는 동시성 제한보다 크게 설정하여 LLM 파이프라인 효율 극대화
-            int batchSize = Math.Max(_config.Processing.ConcurrentRequests * 5, 15);
+            int batchSize = Math.Max(_config.Processing.ConcurrentRequests * BatchSizeMultiplier, MinBatchSize);
             bool aborted = false;
 
             // 배치 단위로 병렬 처리: COM 읽기(STA) → LLM 병렬 호출 → COM 저장(STA)
@@ -534,10 +537,17 @@ namespace MailPrioritizer.Services
         private void TagSubject(Outlook.MailItem mail, Priority priority)
         {
             string tag = "[" + priority.ToKorean() + "] ";
-            if (mail.Subject != null && !mail.Subject.StartsWith("["))
+            string subject = mail.Subject ?? "";
+
+            // 기존 우선순위 태그 제거 (재분석 시 태그 갱신)
+            if (subject.StartsWith("["))
             {
-                mail.Subject = tag + mail.Subject;
+                int close = subject.IndexOf("] ");
+                if (close > 0)
+                    subject = subject.Substring(close + 2);
             }
+
+            mail.Subject = tag + subject;
         }
 
         /// <summary>태그 삽입 → UserProperty 저장 → 폴더 이동의 공통 3단계 시퀀스.</summary>
@@ -575,11 +585,17 @@ namespace MailPrioritizer.Services
 
                     foreach (object item in analyzedItems)
                     {
-                        ct.ThrowIfCancellationRequested();
-                        var mail = item as Outlook.MailItem;
-                        if (mail != null)
-                            analyzedIds.Add(mail.EntryID);
-                        ComHelper.Release(item);
+                        try
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var mail = item as Outlook.MailItem;
+                            if (mail != null)
+                                analyzedIds.Add(mail.EntryID);
+                        }
+                        finally
+                        {
+                            ComHelper.Release(item);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -594,11 +610,17 @@ namespace MailPrioritizer.Services
                 // 전체 메일 중 분석되지 않은 것만 수집 (MailItem 여부만 확인)
                 foreach (object item in allItems)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    var mail = item as Outlook.MailItem;
-                    if (mail != null && !analyzedIds.Contains(mail.EntryID))
-                        list.Add(mail.EntryID);
-                    ComHelper.Release(item);
+                    try
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var mail = item as Outlook.MailItem;
+                        if (mail != null && !analyzedIds.Contains(mail.EntryID))
+                            list.Add(mail.EntryID);
+                    }
+                    finally
+                    {
+                        ComHelper.Release(item);
+                    }
                 }
             }
             finally
@@ -616,14 +638,14 @@ namespace MailPrioritizer.Services
             var list = new List<string>();
             foreach (object item in items)
             {
-                ct.ThrowIfCancellationRequested();
-                var mail = item as Outlook.MailItem;
-                if (mail == null) { ComHelper.Release(item); continue; }
-
                 Outlook.UserProperties props = null;
                 Outlook.UserProperty prop = null;
                 try
                 {
+                    ct.ThrowIfCancellationRequested();
+                    var mail = item as Outlook.MailItem;
+                    if (mail == null) continue;
+
                     props = mail.UserProperties;
                     prop = props.Find(MailPropertyNames.Analyzed);
                     if (prop == null || !IsAnalyzed(prop.Value))
@@ -631,7 +653,7 @@ namespace MailPrioritizer.Services
                 }
                 finally
                 {
-                    ComHelper.ReleaseAll(prop, props, mail);
+                    ComHelper.ReleaseAll(prop, props, item);
                 }
             }
             return list;
