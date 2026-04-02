@@ -6,7 +6,7 @@ namespace MailPrioritizer
 {
     partial class ThisAddIn
     {
-        protected virtual Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
+        protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
         {
             return new Ribbon.MailRibbon();
         }
