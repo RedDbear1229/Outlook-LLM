@@ -6,22 +6,9 @@
 
 ## Phase 1: 즉시 효과 (구현 난이도 낮음, 체감 효과 높음)
 
-### R-01. 발신자/도메인 기반 규칙 엔진
+### ~~R-01. 발신자/도메인 기반 규칙 엔진~~ (구현 완료)
 
-LLM 호출 없이 발신자 이메일 또는 도메인으로 즉시 우선순위를 부여한다.
-
-```json
-// config.json 확장
-"rules": [
-  { "type": "domain", "pattern": "important-client.com", "priority": "high" },
-  { "type": "email",  "pattern": "ceo@company.com",      "priority": "urgent" },
-  { "type": "domain", "pattern": "newsletter.com",        "priority": "low" }
-]
-```
-
-**효과:** API 비용 절감, 즉시 분류 (네트워크 지연 없음), 사용자 커스터마이징 강화
-**구현 위치:** `MailProcessor.AnalyzeSingleAsync` 시작부에 규칙 매칭 로직 삽입
-**예상 변경 파일:** `Models/AppConfig.cs`, `Services/MailProcessor.cs`, `Forms/SettingsForm.cs`
+`SenderRule` / `RulesConfig` 모델, `MailProcessor.ApplySenderRules()`, SettingsForm 4번째 탭 "발신자 규칙" DataGridView로 구현됨. 단건/배치 분석 모두 LLM 호출 전에 규칙 우선 적용.
 
 ---
 
@@ -156,7 +143,7 @@ API 연결 상태를 Ribbon 또는 Task Pane에 상시 표시하여 문제를 �
 
 | 아이템 | 난이도 | 효과 | 상태 |
 |--------|--------|------|------|
-| R-01 발신자/도메인 규칙 | 낮음 | 높음 | 미구현 |
+| ~~R-01 발신자/도메인 규칙~~ | 낮음 | 높음 | **완료** |
 | ~~R-02 오프라인 재시도 큐~~ | 낮음 | 중간 | **완료** |
 | R-03 Task Pane 상태 기억 | 낮음 | 중간 | 미구현 |
 | ~~R-04 첨부파일 메타데이터~~ | 낮음 | 중간 | **완료** |
