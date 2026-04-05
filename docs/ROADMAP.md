@@ -18,13 +18,9 @@
 
 ---
 
-### R-03. Task Pane 상태 기억
+### ~~R-03. Task Pane 상태 기억~~ (구현 완료)
 
-Task Pane의 열림/닫힘 상태와 너비를 config에 저장하여 Outlook 재시작 시 복원한다.
-
-**현재 문제:** 사용자가 Task Pane을 닫아도 매번 시작 시 다시 표시됨.
-**구현 방식:** `DisplayConfig`에 `TaskPaneVisible`, `TaskPaneWidth` 필드 추가. `ThisAddIn_Startup`에서 복원, `_summaryPane.VisibleChanged` 이벤트로 저장.
-**예상 변경 파일:** `Models/AppConfig.cs`, `ThisAddIn.cs`, `Config/ConfigManager.cs`
+`DisplayConfig.TaskPaneVisible/TaskPaneWidth` 필드로 저장/복원. 열림·닫힘은 `VisibleChanged` 이벤트로 즉시 저장, 너비는 1초 간격 폴링 타이머로 변화 감지 후 저장 (`CustomTaskPane`에 `WidthChanged` 이벤트 없음).
 
 ---
 
@@ -145,7 +141,7 @@ API 연결 상태를 Ribbon 또는 Task Pane에 상시 표시하여 문제를 �
 |--------|--------|------|------|
 | ~~R-01 발신자/도메인 규칙~~ | 낮음 | 높음 | **완료** |
 | ~~R-02 오프라인 재시도 큐~~ | 낮음 | 중간 | **완료** |
-| R-03 Task Pane 상태 기억 | 낮음 | 중간 | 미구현 |
+| ~~R-03 Task Pane 상태 기억~~ | 낮음 | 중간 | **완료** |
 | ~~R-04 첨부파일 메타데이터~~ | 낮음 | 중간 | **완료** |
 | R-05 SQLite 로컬 인덱스 | 중간 | 높음 | 미구현 |
 | ~~R-06 피드백 수집/정확도~~ | 중간 | 높음 | **완료** |

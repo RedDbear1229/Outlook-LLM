@@ -33,6 +33,10 @@ namespace MailPrioritizer
         private System.Windows.Forms.Timer _selectionDebounceTimer;
         private string _lastSelectedEntryId;
 
+        // ── R-03: Task Pane 너비 변화 감지 ──
+        private System.Windows.Forms.Timer _paneWidthCheckTimer;
+        private int _lastSavedPaneWidth;
+
         private void ThisAddIn_Startup(object sender, EventArgs e)
         {
             // WinForms SynchronizationContext 보장 (STA 스레드 복귀를 위해 필수)
@@ -65,9 +69,24 @@ namespace MailPrioritizer
             _summaryPane.Width   = Config.Display.TaskPaneWidth > 0
                 ? Config.Display.TaskPaneWidth : 320;
             _summaryPane.Visible = Config.Display.TaskPaneVisible;
+            _lastSavedPaneWidth  = _summaryPane.Width;
 
-            // R-03: 상태 변경 시 자동 저장
+            // R-03: 열림/닫힘 변경 시 즉시 저장
             _summaryPane.VisibleChanged += (s, ev) => SaveTaskPaneState();
+
+            // R-03: CustomTaskPane에 WidthChanged 이벤트가 없으므로 1초 간격 폴링으로 너비 변화 감지
+            _paneWidthCheckTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _paneWidthCheckTimer.Tick += (s, ev) =>
+            {
+                if (_summaryPane == null) return;
+                int currentWidth = _summaryPane.Width;
+                if (currentWidth != _lastSavedPaneWidth)
+                {
+                    _lastSavedPaneWidth = currentWidth;
+                    SaveTaskPaneState();
+                }
+            };
+            _paneWidthCheckTimer.Start();
 
             // SelectionChange 디바운스 타이머 (200ms)
             _selectionDebounceTimer = new System.Windows.Forms.Timer { Interval = 200 };
@@ -100,6 +119,13 @@ namespace MailPrioritizer
             Logger.Info("Shutdown: begin");
 
             // 타이머 해제
+            if (_paneWidthCheckTimer != null)
+            {
+                _paneWidthCheckTimer.Stop();
+                _paneWidthCheckTimer.Dispose();
+                _paneWidthCheckTimer = null;
+            }
+
             if (_selectionDebounceTimer != null)
             {
                 _selectionDebounceTimer.Stop();
