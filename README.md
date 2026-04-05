@@ -81,22 +81,21 @@ msbuild MailPrioritizer.sln /p:Configuration=Release
 
 Visual Studio에서 `F5`를 누르면 Outlook이 Add-in이 연결된 상태로 실행됩니다. Outlook을 종료하면 Add-in도 자동 해제됩니다.
 
-### 방법 2: ClickOnce 배포 (운영용)
+### 방법 2: 원클릭 배포 (운영용)
 
-1. Visual Studio에서 프로젝트 속성 → **게시** 탭
-2. 게시 위치 지정 (네트워크 폴더 또는 웹 서버)
-3. **지금 게시** 클릭
-4. 배포 대상 PC에서 `setup.exe` 실행
+프로젝트 루트에서 PowerShell 스크립트를 실행합니다:
 
-### 방법 3: 수동 등록
-
-빌드된 `.vsto` 파일을 더블 클릭하여 설치합니다:
-
-```
-MailPrioritizer/bin/Release/MailPrioritizer.vsto
+```powershell
+.\deploy-clickonce.ps1           # 기본 빌드
+.\deploy-clickonce.ps1 -Open     # 빌드 후 폴더 열기
+.\deploy-clickonce.ps1 -PublishVersion 1.0.0.5 -Open  # 버전 지정
 ```
 
-설치 시 신뢰 프롬프트가 표시됩니다. "설치"를 클릭하면 Outlook에 Add-in이 등록됩니다.
+`publish\` 폴더가 생성됩니다. 대상 PC에 폴더 전체를 복사한 뒤:
+- `install.bat` 실행 (또는 `MailPrioritizer.vsto` 더블클릭)
+- 보안 경고 대화상자에서 [설치] 클릭
+
+> 서명 없는 내부 배포입니다. VSTO Runtime이 대상 PC에 설치되어 있어야 합니다.
 
 ### 설치 확인
 
@@ -333,7 +332,9 @@ MailPrioritizer/
     ├── Services/
     │   ├── LlmService.cs            # Claude/OpenAI 듀얼 API 클라이언트
     │   ├── MailProcessor.cs         # 메일 분석 엔진 (단건/배치/통계/내보내기)
-    │   └── FolderManager.cs         # 우선순위 폴더 생성/이동
+    │   ├── FolderManager.cs         # 우선순위 폴더 생성/이동
+    │   ├── RetryQueue.cs            # LLM 실패 메일 자동 재시도 큐
+    │   └── FeedbackStore.cs         # 사용자 수동 변경 이력/정확도 통계
     ├── Ribbon/
     │   ├── MailRibbon.cs            # 리본 버튼 이벤트 핸들러
     │   └── MailRibbon.xml           # 리본 UI 정의 (5개 버튼)
@@ -347,6 +348,14 @@ MailPrioritizer/
         ├── Logger.cs                # 파일 기반 로거 (7일 보관)
         └── MailPropertyNames.cs     # UserProperty 이름 상수
 ```
+
+### 배포 스크립트
+
+| 파일 | 설명 |
+|------|------|
+| `deploy-clickonce.ps1` | Release 빌드 + VSTO 매니페스트 생성 + publish 패키징 |
+| `MailPrioritizer.CLI.targets` | CLI 빌드용 no-op 타겟 (매니페스트 생략) |
+| `MailPrioritizer.Publish.targets` | 서명 없는 매니페스트 생성 파이프라인 |
 
 ### 관련 문서
 

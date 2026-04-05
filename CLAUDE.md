@@ -10,14 +10,49 @@ Target: Windows 10 + Outlook 2016, C# 7.3 / .NET Framework 4.7.2.
 
 ## Build & Run
 
-This is a Visual Studio VSTO project. It cannot be built in this Termux environment — source code generation only.
+Requires VS 2022 + Office Developer Tools installed at the default path.
 
-```
-# On Windows with VS 2019/2022 + Office Developer Tools:
-# Open MailPrioritizer.sln → Build → F5 (launches Outlook with add-in attached)
+**CLI build (PowerShell):**
+```powershell
+# Debug build
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" `
+  "C:\project\Outlook-LLM\MailPrioritizer\MailPrioritizer\MailPrioritizer.csproj" `
+  /p:Configuration=Debug /v:minimal
+
+# Release build
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" `
+  "C:\project\Outlook-LLM\MailPrioritizer\MailPrioritizer\MailPrioritizer.csproj" `
+  /p:Configuration=Release /v:minimal
+
+# Clean
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" `
+  "C:\project\Outlook-LLM\MailPrioritizer\MailPrioritizer\MailPrioritizer.csproj" /t:Clean
 ```
 
-NuGet dependencies: `Newtonsoft.Json 13.0.3`
+**IDE (debug with Outlook):**
+Open `MailPrioritizer\MailPrioritizer.sln` in VS 2022 → F5 (launches Outlook with add-in attached).
+
+**Output:** `MailPrioritizer\MailPrioritizer\bin\Debug\MailPrioritizer.dll`
+
+**One-click deploy (ClickOnce / VSTO):**
+```powershell
+# From repo root — generates publish\ folder with install.bat
+.\deploy-clickonce.ps1
+
+# With version bump and auto-open Explorer
+.\deploy-clickonce.ps1 -PublishVersion 1.0.0.5 -Open
+```
+Output: `publish\` folder containing `MailPrioritizer.vsto`, `install.bat`, `uninstall.bat`, and all required DLLs.
+Distribute the entire `publish\` folder; target PCs run `install.bat` (or double-click `.vsto`).
+Manifests are **unsigned** (internal distribution only — users see one security dialog on first install).
+
+MSBuild targets:
+- `MailPrioritizer.CLI.targets` — no-op override for fast regular builds (`IsVstoPublish=false`)
+- `MailPrioritizer.Publish.targets` — custom unsigned manifest pipeline (`IsVstoPublish=true`)
+
+**Note:** CLI builds skip the VSTO manifest/registration pipeline (`VisualStudioForApplicationsBuild` and `RegisterOfficeAddin` targets are overridden as no-ops when `BuildingInsideVisualStudio != true`). The DLL is fully functional; VS IDE runs the full VSTO pipeline normally.
+
+NuGet dependencies: `Newtonsoft.Json 13.0.3` (packages.config, resolved from local GAC or IIS Web Deploy path)
 
 ## Architecture
 
@@ -30,7 +65,9 @@ ThisAddIn (VSTO entry point, service owner, event wiring)
   ├── Services/
   │   ├── LlmService            — Dual API client (Claude Messages + OpenAI Chat Completions)
   │   ├── MailProcessor          — Core engine: extract → LLM call → save UserProperty → move folder
-  │   └── FolderManager          — Create/find priority subfolders, multi-store support
+  │   ├── FolderManager          — Create/find priority subfolders, multi-store support
+  │   ├── RetryQueue             — Persist failed EntryIDs, auto-retry up to 3 times
+  │   └── FeedbackStore          — Track manual priority changes, accuracy stats
   ├── Models/                    — Priority enum, MailAnalysis, AppConfig (4 nested config classes)
   ├── Config/ConfigManager       — JSON config at %AppData%/MailPrioritizer/, DPAPI token encryption
   └── Utils/

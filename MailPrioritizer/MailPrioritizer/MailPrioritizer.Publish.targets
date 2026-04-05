@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MailPrioritizer.Publish.targets
+  Imported when IsVstoPublish=true (via deploy-clickonce.ps1).
+
+  Overrides VisualStudioForApplicationsBuild with a version that generates
+  the VSTO ClickOnce manifests (.dll.manifest, .vsto) WITHOUT code signing.
+  Unsigned manifests are valid for internal deployment (users get a security
+  dialog on first run, which is acceptable for team-internal distribution).
+
+  For production distribution with a trusted cert, use VS IDE Publish which
+  handles signing via the project's ManifestKeyFile / ManifestCertificateThumbprint.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!--
+    Custom VisualStudioForApplicationsBuild that skips:
+      - VerifyClickOnceSigningSettings  (signing requirement check)
+      - ManageCertificateStore          (cert store registry ops)
+      - RegisterFormRegions             (Outlook registry writes)
+      - SignFile tasks                  (manifest signing)
+
+    And runs:
+      - InitializeDefaultProperties     (friendly name, description)
+      - FindRibbons                     (ribbon types for manifest)
+      - GenerateOfficeAddInManifest     (VSTO embedded manifest)
+      - PregenerateApplicationManifest  (pre-GAM manifest)
+      - ResolveManifestFiles            (dependency resolution)
+      - GenerateApplicationManifest     → bin\Release\MailPrioritizer.dll.manifest
+      - GenerateDeploymentManifest      → bin\Release\MailPrioritizer.vsto
+  -->
+  <Target Name="VisualStudioForApplicationsBuild">
+
+    <InitializeDefaultProperties
+        Condition="'$(OfficeApplicationDescription)' == ''"
+        TargetName="$(TargetName)"
+        OfficeApplication="$(OfficeApplication)"
+        ProjectTypeName="$(VSTO_ProjectType)">
+      <Output TaskParameter="OfficeApplicationDescription" PropertyName="OfficeApplicationDescription"/>
+    </InitializeDefaultProperties>
+
+    <FindRibbons
+        AssemblyName="$(AbsolutePathToCustomization)"
+        TargetFramework="$(TargetFrameworkVersion)">
+      <Output TaskParameter="RibbonTypes" ItemName="RibbonTypesCollection"/>
+    </FindRibbons>
+
+    <GenerateOfficeAddInManifest
+        Condition="'$(VSTO_ProjectType)' == 'Application'"
+        FriendlyName="$(FriendlyName)"
+        KeyName="$(TargetName)"
+        Description="$(OfficeApplicationDescription)"
+        OfficeApplication="$(OfficeApplication)"
+        FormRegionNamesAndMessageClasses="@(FormRegionNamesAndMessageClassesCollection)"
+        RibbonTypes="@(RibbonTypesCollection)"
+        LoadBehavior="$(LoadBehavior)"
+        TargetFramework="$(TargetFrameworkVersion)">
+      <Output TaskParameter="OutputManifest" ItemName="OutputManifestCollection"/>
+    </GenerateOfficeAddInManifest>
+
+    <PregenerateApplicationManifest
+        OutputPath="$(OutDir)"
+        TargetFileName="$(TargetFileName)"
+        EmbeddedManifestFileName="$(EmbeddedManifestFileName)"
+        InputManifest="@(OutputManifestCollection)"
+        UpdateEnabled="$(UpdateEnabled)"
+        UpdateInterval="$(UpdateInterval)"
+        UpdateIntervalUnits="$(UpdateIntervalUnits)">
+      <Output TaskParameter="EmbeddedManifestFileNameWithPath" ItemName="EmbeddedManifestFileNameWithPathCollection"/>
+    </PregenerateApplicationManifest>
+
+    <!-- Serialization assemblies -->
+    <CreateItem Include="@(SGenFilesOutputGroupOutput->'%(FullPath)');@(_ReferenceSerializationAssemblyPaths->'%(FullPath)')" Condition="'%(Extension)' == '.dll'">
+      <Output TaskParameter="Include" ItemName="_SGenDllsRelatedToCurrentDll" />
+    </CreateItem>
+
+    <PropertyGroup>
+      <PackageRefEnabled>false</PackageRefEnabled>
+      <PackageRefEnabled Condition="exists('$(ProjectLockFile)')">true</PackageRefEnabled>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_CopyLocalFalseRefPaths Include="@(ReferencePath)" Condition="'%(ReferencePath.CopyLocal)' == 'false'" />
+      <_CopyLocalFalseRefPathsWithExclusion Include="@(_CopyLocalFalseRefPaths)"
+                                      Exclude="@(ReferenceCopyLocalPaths);@(_NETStandardLibraryNETFrameworkLib)" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <_SatelliteAssemblies Include="@(IntermediateSatelliteAssembliesWithTargetPath);@(ReferenceSatellitePaths)" />
+      <_DeploymentReferencePaths Include="@(ReferenceCopyLocalPaths)" Condition="'%(Extension)' == '.dll' Or '%(Extension)' == '.exe'">
+        <IsPrimary>true</IsPrimary>
+      </_DeploymentReferencePaths>
+      <_DeploymentReferencePaths Include="@(_CopyLocalFalseRefPathsWithExclusion)" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(PackageRefEnabled)'=='false'">
+      <_FinalDeploymentReferencePaths Include="@(_DeploymentReferencePaths)" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <_ManifestManagedReferences Include="@(_FinalDeploymentReferencePaths);@(ReferenceDependencyPaths);@(_SGenDllsRelatedToCurrentDll);@(SerializationAssembly);@(ReferenceCOMWrappersToCopyLocal)"
+                                  Exclude="@(_SatelliteAssemblies);@(_ReferenceScatterPaths);@(_ExcludedAssembliesFromManifestGeneration)" />
+    </ItemGroup>
+
+    <ResolveManifestFiles
+        EntryPoint="@(DllEntryPoint)"
+        ManagedAssemblies="@(_ManifestManagedReferences);@(DllEntryPoint)"
+        Files="@(AppConfigWithTargetPath);@(ContentWithTargetPath)"
+        SatelliteAssemblies="@(_SatelliteAssemblies)"
+        TargetCulture="*">
+      <Output TaskParameter="OutputAssemblies" ItemName="DependenciesForGam"/>
+      <Output TaskParameter="OutputFiles" ItemName="FilesForGAM"/>
+    </ResolveManifestFiles>
+
+    <!-- Generate unsigned application manifest (.dll.manifest) -->
+    <GenerateApplicationManifest
+        AssemblyName="$(TargetFileName)"
+        AssemblyVersion="$(PublishVersion)"
+        ConfigFile="@(AppConfigWithTargetPath)"
+        ClrVersion="$(ClrVersion)"
+        Dependencies="@(DependenciesForGam)"
+        Description="$(OfficeApplicationDescription)"
+        Files="@(FilesForGAM)"
+        InputManifest="@(EmbeddedManifestFileNameWithPathCollection)"
+        IsolatedComReferences="@(ResolvedIsolatedComModules)"
+        ManifestType="ClickOnce"
+        MaxTargetPath="$(MaxTargetPath)"
+        OutputManifest="@(ApplicationManifestWithPathCollection)"
+        OSVersion="$(OSVersion)"
+        Platform="$(PlatformTarget)"
+        TargetCulture="*"
+        TargetFrameworkVersion="$(TargetFrameworkVersion)">
+      <Output TaskParameter="OutputManifest" ItemName="FileWrites"/>
+    </GenerateApplicationManifest>
+
+    <!-- Delete embedded manifest -->
+    <Delete Files="@(EmbeddedManifestFileNameWithPathCollection)"
+            Condition="Exists('@(EmbeddedManifestFileNameWithPathCollection)')" />
+
+    <!-- SignFile is intentionally omitted — unsigned manifests for internal use -->
+
+    <CreateItem
+        Include="$(OutDir)$(ApplicationManifestFileName)"
+        AdditionalMetadata="TargetPath=$(ApplicationManifestFileName)">
+      <Output TaskParameter="Include" ItemName="ApplicationManifestWithPathForBuildCollection" />
+    </CreateItem>
+
+    <!-- Generate unsigned deployment manifest (.vsto) -->
+    <GenerateDeploymentManifest
+        EntryPoint="@(ApplicationManifestWithPathForBuildCollection)"
+        AssemblyName="$(DeploymentManifestFileName)"
+        AssemblyVersion="$(PublishVersion)"
+        OutputManifest="@(DeploymentManifestWithPathCollection)"
+        Platform="$(PlatformTarget)"
+        Install="false"
+        TargetFrameworkMoniker="$(TargetFrameworkMoniker)"
+        TargetFrameworkVersion="$(TargetFrameworkVersion)">
+      <Output TaskParameter="OutputManifest" ItemName="FileWrites"/>
+    </GenerateDeploymentManifest>
+
+    <!-- SignFile for deployment manifest intentionally omitted -->
+
+    <Message Text="VSTO manifests generated (unsigned — internal deployment only)." Importance="normal" />
+
+  </Target>
+
+</Project>

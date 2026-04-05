@@ -308,6 +308,8 @@ namespace MailPrioritizer.Services
 
         private static string ExtractJson(string text)
         {
+            if (string.IsNullOrEmpty(text)) return text ?? "";
+
             // ```json ... ``` 또는 ``` ... ``` 제거
             var fenceMatch = Regex.Match(text, @"```(?:json)?\s*([\s\S]*?)```");
             if (fenceMatch.Success)

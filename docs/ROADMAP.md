@@ -1,6 +1,6 @@
 # MailPrioritizer — 향후 구현 예정 아이템
 
-> 최종 업데이트: 2026-03-29
+> 최종 업데이트: 2026-04-05
 
 ---
 
@@ -25,13 +25,9 @@ LLM 호출 없이 발신자 이메일 또는 도메인으로 즉시 우선순위
 
 ---
 
-### R-02. 오프라인 재시도 큐
+### ~~R-02. 오프라인 재시도 큐~~ (구현 완료)
 
-LLM API 호출 실패 시 EntryID를 로컬 큐에 저장하고, 다음 기회에 자동 재시도한다.
-
-**현재 문제:** API 일시 장애 시 메일이 Normal 폴백으로 분류되어 재분석하지 않으면 영구적으로 잘못된 분류가 유지됨.
-**구현 방식:** `%AppData%/MailPrioritizer/retry_queue.json`에 `{EntryID, FailedAt, RetryCount}` 저장. `NewMailEx` 또는 타이머 이벤트에서 큐 소진.
-**예상 변경 파일:** 신규 `Services/RetryQueue.cs`, `Services/MailProcessor.cs`, `ThisAddIn.cs`
+`Services/RetryQueue.cs`로 구현됨. `%AppData%/MailPrioritizer/retry_queue.json`에 실패 EntryID 저장, 최대 3회 재시도.
 
 ---
 
@@ -45,13 +41,9 @@ Task Pane의 열림/닫힘 상태와 너비를 config에 저장하여 Outlook �
 
 ---
 
-### R-04. 첨부파일 메타데이터 활용
+### ~~R-04. 첨부파일 메타데이터 활용~~ (구현 완료)
 
-첨부파일명과 개수를 LLM 프롬프트에 포함하여 분류 정확도를 높인다.
-
-**현재 문제:** "계약서_최종.pdf" 첨부 메일이 본문만으로는 중요도 파악이 어려움.
-**구현 방식:** `MailProcessor`에서 `mail.Attachments`를 순회하여 파일명 목록 추출 → `LlmService.BuildUserMessage`에 "첨부파일: 계약서_최종.pdf, 회의록.docx" 추가.
-**예상 변경 파일:** `Services/MailProcessor.cs`, `Services/LlmService.cs`
+`MailProcessor.GetAttachmentNames()`로 구현됨. `Processing.IncludeAttachmentNames` 설정으로 제어.
 
 ---
 
@@ -69,27 +61,15 @@ Task Pane의 열림/닫힘 상태와 너비를 config에 저장하여 Outlook �
 
 ---
 
-### R-06. 사용자 피드백 수집 및 정확도 통계
+### ~~R-06. 사용자 피드백 수집 및 정확도 통계~~ (구현 완료)
 
-사용자가 우선순위를 수동 변경한 이력을 수집하여 LLM 정확도를 측정한다.
-
-**현재 상태:** `OnPriorityChanged`에서 변경이 일어나지만 "LLM이 뭘로 판단했고, 사용자가 뭘로 바꿨는지" 이력이 없음.
-**구현 방식:**
-1. 변경 시 `{EntryID, OriginalPriority, UserPriority, ChangedAt}` 기록 (로컬 인덱스 또는 별도 JSON)
-2. 통계: "LLM 정확도 82%, 가장 많은 오분류: Normal→Urgent (12건)"
-3. 장기: 오분류 사례를 few-shot 예시로 프롬프트에 자동 삽입
-
-**예상 변경 파일:** `TaskPane/SummaryControl.cs`, 신규 `Services/FeedbackStore.cs`, `TaskPane/SummaryControl.cs` (통계 표시)
+`Services/FeedbackStore.cs`로 구현됨. `feedback.json`에 수동 변경 이력 저장, `GetStats()` 메서드로 정확도/오분류 패턴 통계 제공.
 
 ---
 
-### R-07. 분석 결과 버전 관리
+### ~~R-07. 분석 결과 버전 관리~~ (구현 완료)
 
-모델이나 프롬프트 변경 시 기존 분석 결과와 구분할 수 있도록 메타데이터를 추가한다.
-
-**현재 문제:** 모델을 Claude → GPT-4o로 변경해도 기존 분석 결과와 새 결과가 혼재. "이전 모델로 분석된 메일만 재분석" 불가능.
-**구현 방식:** UserProperty 추가: `LLM_ModelName` (Text), `LLM_AnalyzedAt` (Date). `ResetAllAnalysisFlags`에 모델 필터 옵션 추가.
-**예상 변경 파일:** `Utils/MailPropertyNames.cs`, `Services/MailProcessor.cs`, `Ribbon/MailRibbon.cs`
+UserProperty `LLM_ModelName`, `LLM_AnalyzedAt` 추가됨. `MailPropertyNames.cs`에 상수 정의.
 
 ---
 
@@ -174,18 +154,18 @@ API 연결 상태를 Ribbon 또는 Task Pane에 상시 표시하여 문제를 �
 
 ## 우선순위 매트릭스
 
-| 아이템 | 난이도 | 효과 | 권장 순서 |
-|--------|--------|------|-----------|
-| R-01 발신자/도메인 규칙 | 낮음 | 높음 | 1 |
-| R-02 오프라인 재시도 큐 | 낮음 | 중간 | 2 |
-| R-03 Task Pane 상태 기억 | 낮음 | 중간 | 3 |
-| R-04 첨부파일 메타데이터 | 낮음 | 중간 | 4 |
-| R-05 SQLite 로컬 인덱스 | 중간 | 높음 | 5 |
-| R-06 피드백 수집/정확도 | 중간 | 높음 | 6 |
-| R-07 분석 결과 버전 관리 | 중간 | 중간 | 7 |
-| R-08 키보드 단축키 | 중간 | 중간 | 8 |
-| R-09 다국어 지원 | 높음 | 중간 | 9 |
-| R-10 단위 테스트 | 높음 | 높음 | 10 |
-| R-11 LLM 스트리밍 | 높음 | 중간 | 11 |
-| R-12 증분 분석 최적화 | 중간 | 중간 | 12 |
-| R-13 Health Check | 중간 | 낮음 | 13 |
+| 아이템 | 난이도 | 효과 | 상태 |
+|--------|--------|------|------|
+| R-01 발신자/도메인 규칙 | 낮음 | 높음 | 미구현 |
+| ~~R-02 오프라인 재시도 큐~~ | 낮음 | 중간 | **완료** |
+| R-03 Task Pane 상태 기억 | 낮음 | 중간 | 미구현 |
+| ~~R-04 첨부파일 메타데이터~~ | 낮음 | 중간 | **완료** |
+| R-05 SQLite 로컬 인덱스 | 중간 | 높음 | 미구현 |
+| ~~R-06 피드백 수집/정확도~~ | 중간 | 높음 | **완료** |
+| ~~R-07 분석 결과 버전 관리~~ | 중간 | 중간 | **완료** |
+| R-08 키보드 단축키 | 중간 | 중간 | 미구현 |
+| R-09 다국어 지원 | 높음 | 중간 | 미구현 |
+| R-10 단위 테스트 | 높음 | 높음 | 미구현 |
+| R-11 LLM 스트리밍 | 높음 | 중간 | 미구현 |
+| R-12 증분 분석 최적화 | 중간 | 중간 | 미구현 |
+| R-13 Health Check | 중간 | 낮음 | 미구현 |

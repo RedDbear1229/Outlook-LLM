@@ -224,6 +224,11 @@ namespace MailPrioritizer.Services
                     {
                         if (tasks[j].Status == TaskStatus.RanToCompletion)
                             analyses[j] = tasks[j].Result;
+                        else if (tasks[j].IsFaulted)
+                        {
+                            Logger.Error("AnalyzeInboxAsync: task[" + j + "] faulted", tasks[j].Exception);
+                            analyses[j] = MailAnalysis.CreateFallback("배치 호출 오류");
+                        }
                         else
                             analyses[j] = MailAnalysis.CreateFallback("배치 호출 오류");
                     }

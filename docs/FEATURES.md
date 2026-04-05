@@ -1,6 +1,6 @@
 # MailPrioritizer — 구현 완료 기능 목록
 
-> 최종 업데이트: 2026-03-29
+> 최종 업데이트: 2026-04-05
 
 ---
 
@@ -217,3 +217,48 @@ Outlook에 등록된 여러 메일 계정 중 분석 대상을 선택할 수 있
 - 예: `[긴급] 서버 장애 보고`, `[높음] 계약서 검토 요청`
 - 이미 `[` 로 시작하는 제목은 중복 삽입 방지
 - `mail.Save()` 호출 없이 태그만 설정 — 호출자가 일괄 Save
+
+---
+
+## 14. 오프라인 재시도 큐
+
+**파일:** `Services/RetryQueue.cs`
+
+LLM API 호출 실패 시 EntryID를 로컬 큐에 저장하여 자동 재시도한다.
+- 저장소: `%AppData%/MailPrioritizer/retry_queue.json`
+- 최대 재시도 횟수: 3회 (초과 시 큐에서 자동 제거)
+- 중복 Enqueue 방지 (EntryID 기반)
+- 스레드 안전: `lock` 기반 동기화
+
+---
+
+## 15. 사용자 피드백 수집 및 정확도 통계
+
+**파일:** `Services/FeedbackStore.cs`
+
+사용자가 LLM 분류 결과를 수동 변경한 이력을 수집하여 정확도를 측정한다.
+- 저장소: `%AppData%/MailPrioritizer/feedback.json`
+- LLM 결과와 동일하면 기록하지 않음 (실제 수정만 추적)
+- 정확도 통계: 분석 총 건수 대비 수정 건수 → 정확도 백분율
+- 오분류 패턴: 가장 많이 발생한 `LLM우선순위→사용자우선순위` 패턴 표시
+
+---
+
+## 16. 분석 결과 버전 관리
+
+**파일:** `Utils/MailPropertyNames.cs`, `Services/MailProcessor.cs`
+
+모델 변경 시 기존 분석과 구분할 수 있는 메타데이터를 메일에 저장한다.
+- `LLM_ModelName` (Text) — 분석에 사용된 모델 이름
+- `LLM_AnalyzedAt` (Text) — 분석 시각 (ISO 8601)
+
+---
+
+## 17. 첨부파일 메타데이터 활용
+
+**파일:** `Services/MailProcessor.cs` → `GetAttachmentNames`
+
+첨부파일명을 LLM 프롬프트에 포함하여 분류 정확도를 높인다.
+- `Processing.IncludeAttachmentNames` 설정으로 제어
+- 파일명 목록을 `"첨부파일: file1.pdf, file2.docx"` 형태로 프롬프트에 추가
+- COM Attachment 객체는 개별 try/finally로 안전 해제

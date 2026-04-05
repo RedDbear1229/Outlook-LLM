@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MailPrioritizer.CLI.targets
+  Imported only during regular CLI builds (not during ClickOnce publish).
+  Overrides VisualStudioForApplicationsBuild with a no-op to skip manifest
+  generation and signing verification, which is not needed for plain DLL builds.
+
+  This file is NOT imported when IsVstoPublish=true, allowing the real
+  Office.targets VisualStudioForApplicationsBuild to run for ClickOnce publish.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Target Name="VisualStudioForApplicationsBuild">
+    <!-- No-op: skip VSTO manifest/signing pipeline for fast CLI builds.
+         For ClickOnce publish, use /p:IsVstoPublish=true to bypass this import. -->
+  </Target>
+</Project>
