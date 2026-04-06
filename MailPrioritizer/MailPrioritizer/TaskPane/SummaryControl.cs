@@ -36,6 +36,7 @@ namespace MailPrioritizer.TaskPane
         private Label _lblStatsContent;
         private Button _btnRefreshStats;
         private ToolTip _toolTip;
+        private Label _lblApiStatus;
 
         // 현재 표시 중인 메일 (EntryID로 참조, COM 객체 직접 보관 지양)
         private string _currentEntryId;
@@ -96,6 +97,37 @@ namespace MailPrioritizer.TaskPane
                 SetViewState(showNotAnalyzed: true);
                 _lblNotAnalyzed.Text = "오류: " + message;
                 _btnAnalyzeNow.Visible = false;
+            });
+        }
+
+        /// <summary>R-13: LLM 서비스 헬스 상태를 하단 레이블에 갱신.</summary>
+        public void UpdateApiStatus()
+        {
+            SafeInvoke(() =>
+            {
+                var svc = Globals.ThisAddIn.LlmService;
+                if (svc == null) return;
+
+                if (svc.LastErrorAt.HasValue
+                    && (!svc.LastSuccessAt.HasValue || svc.LastErrorAt > svc.LastSuccessAt))
+                {
+                    string when = svc.LastErrorAt.Value.ToString("HH:mm");
+                    string msg = svc.LastErrorMessage ?? "";
+                    if (msg.Length > 50) msg = msg.Substring(0, 50) + "...";
+                    _lblApiStatus.Text = "API 오류 " + when + ": " + msg;
+                    _lblApiStatus.ForeColor = Color.FromArgb(180, 0, 0);
+                }
+                else if (svc.LastSuccessAt.HasValue)
+                {
+                    string when = svc.LastSuccessAt.Value.ToString("HH:mm");
+                    _lblApiStatus.Text = "마지막 성공: " + when;
+                    _lblApiStatus.ForeColor = Color.FromArgb(0, 130, 0);
+                }
+                else
+                {
+                    _lblApiStatus.Text = "API 미호출";
+                    _lblApiStatus.ForeColor = Color.Gray;
+                }
             });
         }
 
@@ -261,11 +293,13 @@ namespace MailPrioritizer.TaskPane
                 ShowAnalyzing();
                 var analysis = await Globals.ThisAddIn.MailProcessor.AnalyzeSingleAsync(mail);
                 DisplayAnalysis(mail, analysis);
+                UpdateApiStatus();
             }
             catch (Exception ex)
             {
                 Logger.Error("RunAnalysisAsync: analysis failed", ex);
                 ShowError(ex.Message);
+                UpdateApiStatus();
             }
             finally
             {
@@ -464,6 +498,20 @@ namespace MailPrioritizer.TaskPane
 
             layout.Controls.Add(statsDivider);
             layout.Controls.Add(_pnlStats);
+
+            // R-13: API 상태 레이블 (하단 고정)
+            _lblApiStatus = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = false,
+                Height = 18,
+                ForeColor = Color.Gray,
+                Text = "API 미호출",
+                Font = new Font("맑은 고딕", 8f),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(2, 0, 0, 0)
+            };
+            layout.Controls.Add(_lblApiStatus);
 
             this.Controls.Add(layout);
         }
