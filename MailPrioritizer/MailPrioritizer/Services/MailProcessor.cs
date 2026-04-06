@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using MailPrioritizer.Config;
 using MailPrioritizer.Models;
 using MailPrioritizer.Utils;
 using Outlook = Microsoft.Office.Interop.Outlook;
@@ -21,15 +22,17 @@ namespace MailPrioritizer.Services
         private AppConfig _config;
         private readonly RetryQueue _retryQueue;
         internal readonly IndexDatabase Index;  // R-05: null이면 비활성
+        private readonly ConfigManager _configManager; // R-12: 배치 완료 후 LastBatchAnalyzedAt 저장
 
         public MailProcessor(LlmService llmService, FolderManager folderManager, AppConfig config,
-            RetryQueue retryQueue = null, IndexDatabase index = null)
+            RetryQueue retryQueue = null, IndexDatabase index = null, ConfigManager configManager = null)
         {
             _llmService = llmService;
             _folderManager = folderManager;
             _config = config;
             _retryQueue = retryQueue;
             Index = index;
+            _configManager = configManager;
         }
 
         public void ReloadConfig(AppConfig newConfig)
@@ -128,10 +131,14 @@ namespace MailPrioritizer.Services
         {
             var result = new BatchProgress();
 
-            // 미분석 메일 목록 수집 (EntryID로 참조 — 이동 후 MailItem 무효화 방지)
-            var entryIds = CollectUnanalyzedEntryIds(outlookApp, cancellationToken);
+            // R-12: 증분 분석 — 마지막 배치 이후 수신된 메일만 스캔
+            var entryIds = CollectUnanalyzedEntryIds(
+                outlookApp, cancellationToken, _config.Processing.LastBatchAnalyzedAt);
             result.Total = entryIds.Count;
-            Logger.Info("AnalyzeInboxAsync: start, total=" + entryIds.Count + " unanalyzed mails");
+            Logger.Info("AnalyzeInboxAsync: start, total=" + entryIds.Count + " unanalyzed mails"
+                + (_config.Processing.LastBatchAnalyzedAt.HasValue
+                    ? " (incremental since " + _config.Processing.LastBatchAnalyzedAt.Value.ToString("MM-dd HH:mm") + ")"
+                    : " (full scan)"));
             progress?.Report(result);
 
             int consecutiveFailures = 0;
@@ -301,6 +308,17 @@ namespace MailPrioritizer.Services
             Logger.Info(string.Format(
                 "AnalyzeInboxAsync: batch complete. Processed={0}, Failed={1}, Urgent={2}, High={3}, Normal={4}, Low={5}",
                 result.Processed, result.Failed, result.Urgent, result.High, result.Normal, result.Low));
+
+            // R-12: 배치 완료 시각 저장 (다음 배치에서 증분 스캔 기준점으로 사용)
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                _config.Processing.LastBatchAnalyzedAt = DateTime.Now;
+                if (_configManager != null)
+                {
+                    try { _configManager.Save(_config); }
+                    catch (Exception ex) { Logger.Warn("AnalyzeInboxAsync: failed to save LastBatchAnalyzedAt: " + ex.Message); }
+                }
+            }
 
             return result;
         }
@@ -575,11 +593,13 @@ namespace MailPrioritizer.Services
         private const string DaslAnalyzedProp =
             "http://schemas.microsoft.com/mapi/string/{00020329-0000-0000-C000-000000000046}/" + MailPropertyNames.Analyzed;
 
-        private List<string> CollectUnanalyzedEntryIds(Outlook.Application app, CancellationToken ct)
+        private List<string> CollectUnanalyzedEntryIds(
+            Outlook.Application app, CancellationToken ct, DateTime? since = null)
         {
             var list = new List<string>();
             Outlook.MAPIFolder inbox = null;
             Outlook.Items allItems = null;
+            Outlook.Items scopeItems = null;
             Outlook.Items analyzedItems = null;
 
             try
@@ -587,12 +607,31 @@ namespace MailPrioritizer.Services
                 inbox = _folderManager.GetTargetInbox();
                 allItems = inbox.Items;
 
+                // R-12: 증분 스캔 — since 이후 수신된 메일만 대상 범위로 축소
+                Outlook.Items workItems = allItems;
+                if (since.HasValue)
+                {
+                    try
+                    {
+                        string utc = since.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
+                        string timeFilter = "@SQL=\"urn:schemas:httpmail:datereceived\" >= '" + utc + "'";
+                        scopeItems = allItems.Restrict(timeFilter);
+                        workItems = scopeItems;
+                        Logger.Info("CollectUnanalyzedEntryIds: incremental since " + utc
+                                    + ", scope=" + scopeItems.Count + " mails");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn("CollectUnanalyzedEntryIds: ReceivedTime filter failed, using full scan. " + ex.Message);
+                    }
+                }
+
                 // DASL 필터로 이미 분석된 메일의 EntryID 집합을 먼저 수집
                 var analyzedIds = new HashSet<string>();
                 try
                 {
                     string filter = "@SQL=\"" + DaslAnalyzedProp + "\" = 1";
-                    analyzedItems = allItems.Restrict(filter);
+                    analyzedItems = workItems.Restrict(filter);
 
                     foreach (object item in analyzedItems)
                     {
@@ -615,11 +654,11 @@ namespace MailPrioritizer.Services
                     Logger.Warn("CollectUnanalyzedEntryIds: DASL filter failed, falling back to full scan. " + ex.Message);
                     ComHelper.Release(analyzedItems);
                     analyzedItems = null;
-                    return CollectUnanalyzedEntryIdsFallback(allItems, ct);
+                    return CollectUnanalyzedEntryIdsFallback(workItems, ct);
                 }
 
                 // 전체 메일 중 분석되지 않은 것만 수집 (MailItem 여부만 확인)
-                foreach (object item in allItems)
+                foreach (object item in workItems)
                 {
                     try
                     {
@@ -636,7 +675,7 @@ namespace MailPrioritizer.Services
             }
             finally
             {
-                ComHelper.ReleaseAll(analyzedItems, allItems, inbox);
+                ComHelper.ReleaseAll(analyzedItems, scopeItems, allItems, inbox);
             }
 
             Logger.Info("CollectUnanalyzedEntryIds: found " + list.Count + " unanalyzed mails");
@@ -788,6 +827,14 @@ namespace MailPrioritizer.Services
         {
             // R-05: DB 인덱스도 함께 초기화
             Index?.Clear();
+
+            // R-12: 전체 재분석 시 증분 기준점도 초기화 → 다음 배치는 전체 스캔
+            _config.Processing.LastBatchAnalyzedAt = null;
+            if (_configManager != null)
+            {
+                try { _configManager.Save(_config); }
+                catch (Exception ex) { Logger.Warn("ResetAllAnalysisFlags: failed to clear LastBatchAnalyzedAt: " + ex.Message); }
+            }
 
             int count = 0;
             Outlook.MAPIFolder inbox = null;

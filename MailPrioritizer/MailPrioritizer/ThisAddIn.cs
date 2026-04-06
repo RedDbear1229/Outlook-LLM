@@ -62,7 +62,7 @@ namespace MailPrioritizer
             RetryQueue    = new RetryQueue();
             FeedbackStore = new FeedbackStore();
             IndexDatabase = new IndexDatabase();
-            MailProcessor = new MailProcessor(LlmService, FolderManager, Config, RetryQueue, IndexDatabase);
+            MailProcessor = new MailProcessor(LlmService, FolderManager, Config, RetryQueue, IndexDatabase, ConfigManager);
             Logger.Info("Startup: services created");
 
             // Custom Task Pane (우측 패널)
