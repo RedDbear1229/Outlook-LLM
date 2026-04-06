@@ -192,6 +192,7 @@
     <Compile Include="Models\MailAnalysis.cs" />
     <Compile Include="Models\AppConfig.cs" />
     <Compile Include="Utils\ComHelper.cs" />
+    <Compile Include="Utils\KeyboardShortcutManager.cs" />
     <Compile Include="Utils\Logger.cs" />
     <Compile Include="Utils\MailPropertyNames.cs" />
     <Compile Include="Config\ConfigManager.cs" />
