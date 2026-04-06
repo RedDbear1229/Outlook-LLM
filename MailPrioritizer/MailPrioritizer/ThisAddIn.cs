@@ -21,6 +21,7 @@ namespace MailPrioritizer
         internal MailProcessor MailProcessor { get; private set; }
         internal RetryQueue RetryQueue { get; private set; }
         internal FeedbackStore FeedbackStore { get; private set; }
+        internal IndexDatabase IndexDatabase { get; private set; }
 
         // ── Task Pane ──
         private Microsoft.Office.Tools.CustomTaskPane _summaryPane;
@@ -57,7 +58,8 @@ namespace MailPrioritizer
             FolderManager = new FolderManager(Application, Config);
             RetryQueue    = new RetryQueue();
             FeedbackStore = new FeedbackStore();
-            MailProcessor = new MailProcessor(LlmService, FolderManager, Config, RetryQueue);
+            IndexDatabase = new IndexDatabase();
+            MailProcessor = new MailProcessor(LlmService, FolderManager, Config, RetryQueue, IndexDatabase);
             Logger.Info("Startup: services created");
 
             // Custom Task Pane (우측 패널)
@@ -151,6 +153,13 @@ namespace MailPrioritizer
                 try { _summaryPane.Dispose(); }
                 catch (Exception ex) { Logger.Error("Shutdown: failed to dispose TaskPane", ex); }
                 _summaryPane = null;
+            }
+
+            // R-05: IndexDatabase 해제
+            if (IndexDatabase != null)
+            {
+                try { IndexDatabase.Dispose(); }
+                catch (Exception ex) { Logger.Error("Shutdown: failed to dispose IndexDatabase", ex); }
             }
 
             // LlmService 해제 (HttpClient, SemaphoreSlim)

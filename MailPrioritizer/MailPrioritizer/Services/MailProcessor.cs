@@ -20,14 +20,16 @@ namespace MailPrioritizer.Services
         private readonly FolderManager _folderManager;
         private AppConfig _config;
         private readonly RetryQueue _retryQueue;
+        internal readonly IndexDatabase Index;  // R-05: null이면 비활성
 
         public MailProcessor(LlmService llmService, FolderManager folderManager, AppConfig config,
-            RetryQueue retryQueue = null)
+            RetryQueue retryQueue = null, IndexDatabase index = null)
         {
             _llmService = llmService;
             _folderManager = folderManager;
             _config = config;
             _retryQueue = retryQueue;
+            Index = index;
         }
 
         public void ReloadConfig(AppConfig newConfig)
@@ -561,6 +563,10 @@ namespace MailPrioritizer.Services
             if (_config.Display.TagSubjectWithPriority)
                 TagSubject(mail, analysis.Priority);
             SaveAnalysisToMail(mail, analysis);
+
+            // R-05: UserProperty 저장과 동시에 DB 인덱스에도 기록
+            Index?.Upsert(mail.EntryID, mail.Subject ?? "", GetSender(mail), analysis);
+
             if (_config.Classification.AutoMoveToFolder)
                 _folderManager.MoveToFolder(mail, analysis.Priority);
         }
@@ -678,8 +684,47 @@ namespace MailPrioritizer.Services
             public int Low;
         }
 
-        /// <summary>받은편지함의 분석 통계를 수집한다.</summary>
+        /// <summary>
+        /// 받은편지함의 분석 통계를 수집한다.
+        /// R-05: IndexDatabase가 있으면 DB 쿼리로 즉시 반환, 없으면 COM 전체 순회.
+        /// </summary>
         public InboxStats CollectInboxStats(Outlook.Application app)
+        {
+            // R-05: DB 인덱스에서 통계 조회 (COM 순회 없음)
+            if (Index != null)
+            {
+                int total = GetInboxTotalCount();
+                return Index.GetStats(total);
+            }
+
+            // fallback: COM 전체 순회 (인덱스 없을 때)
+            return CollectInboxStatsCom();
+        }
+
+        /// <summary>받은편지함 전체 메일 수만 COM으로 빠르게 조회한다.</summary>
+        private int GetInboxTotalCount()
+        {
+            Outlook.MAPIFolder inbox = null;
+            Outlook.Items items = null;
+            try
+            {
+                inbox = _folderManager.GetTargetInbox();
+                items = inbox.Items;
+                return items.Count;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("GetInboxTotalCount failed: " + ex.Message);
+                return 0;
+            }
+            finally
+            {
+                ComHelper.ReleaseAll(items, inbox);
+            }
+        }
+
+        /// <summary>COM 기반 통계 수집 (IndexDatabase 없을 때 사용).</summary>
+        private InboxStats CollectInboxStatsCom()
         {
             var stats = new InboxStats();
             Outlook.MAPIFolder inbox = null;
@@ -741,6 +786,9 @@ namespace MailPrioritizer.Services
         /// <summary>받은편지함의 모든 메일에서 LLM_Analyzed 플래그를 초기화한다.</summary>
         public int ResetAllAnalysisFlags(Outlook.Application app)
         {
+            // R-05: DB 인덱스도 함께 초기화
+            Index?.Clear();
+
             int count = 0;
             Outlook.MAPIFolder inbox = null;
             Outlook.Items items = null;
@@ -793,6 +841,35 @@ namespace MailPrioritizer.Services
 
         /// <summary>분석된 메일의 결과를 CSV로 내보낸다. 반환값: 내보낸 건수.</summary>
         public int ExportAnalyzedMails(Outlook.Application app, string filePath)
+        {
+            // R-05: DB 인덱스에서 바로 읽기 (COM 순회 없음)
+            if (Index != null)
+                return ExportFromIndex(filePath);
+
+            // fallback: COM 전체 순회
+            return ExportAnalyzedMailsCom(app, filePath);
+        }
+
+        private int ExportFromIndex(string filePath)
+        {
+            var rows = Index.GetAllAnalyzed();
+            var sb = new StringBuilder();
+            sb.AppendLine("Subject,Sender,Priority,Summary,PriorityReason");
+            foreach (var row in rows)
+            {
+                sb.AppendLine(string.Format("{0},{1},{2},{3},{4}",
+                    CsvEscape(row.Subject),
+                    CsvEscape(row.Sender),
+                    CsvEscape(row.Priority),
+                    CsvEscape(row.Summary),
+                    CsvEscape(row.Reason)));
+            }
+            File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
+            Logger.Info("ExportAnalyzedMails(DB): exported " + rows.Count + " mails to " + filePath);
+            return rows.Count;
+        }
+
+        private int ExportAnalyzedMailsCom(Outlook.Application app, string filePath)
         {
             int count = 0;
             Outlook.MAPIFolder inbox = null;
@@ -851,7 +928,7 @@ namespace MailPrioritizer.Services
             }
 
             File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
-            Logger.Info("ExportAnalyzedMails: exported " + count + " mails to " + filePath);
+            Logger.Info("ExportAnalyzedMails(COM): exported " + count + " mails to " + filePath);
             return count;
         }
 
