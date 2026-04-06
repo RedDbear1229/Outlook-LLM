@@ -100,6 +100,17 @@ namespace MailPrioritizer.TaskPane
             });
         }
 
+        /// <summary>R-08: 키보드 단축키로 우선순위 변경 시 배지만 즉시 갱신.</summary>
+        public void RefreshPriorityBadge(Priority priority)
+        {
+            SafeInvoke(() =>
+            {
+                if (!_pnlPriorityBadge.Visible) return;
+                _pnlPriorityBadge.BackColor = GetPriorityColor(priority);
+                _lblPriorityText.Text = priority.ToEmoji() + " " + priority.ToKorean();
+            });
+        }
+
         /// <summary>R-13: LLM 서비스 헬스 상태를 하단 레이블에 갱신.</summary>
         public void UpdateApiStatus()
         {

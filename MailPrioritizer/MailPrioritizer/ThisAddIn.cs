@@ -38,6 +38,9 @@ namespace MailPrioritizer
         private System.Windows.Forms.Timer _paneWidthCheckTimer;
         private int _lastSavedPaneWidth;
 
+        // ── R-08: 키보드 단축키 ──
+        private Utils.KeyboardShortcutManager _keyboardShortcuts;
+
         private void ThisAddIn_Startup(object sender, EventArgs e)
         {
             // WinForms SynchronizationContext 보장 (STA 스레드 복귀를 위해 필수)
@@ -106,6 +109,9 @@ namespace MailPrioritizer
             // NewMailEx 이벤트 (#11 신규 메일 자동 분석)
             Application.NewMailEx += Application_NewMailEx;
 
+            // R-08: 키보드 단축키 등록
+            _keyboardShortcuts = new Utils.KeyboardShortcutManager(SynchronizationContext.Current);
+
             // R-02: 이전에 실패한 메일 재시도 (비동기, 시작을 블록하지 않음)
             if (RetryQueue.Count > 0)
             {
@@ -119,6 +125,14 @@ namespace MailPrioritizer
         private void ThisAddIn_Shutdown(object sender, EventArgs e)
         {
             Logger.Info("Shutdown: begin");
+
+            // R-08: 키보드 단축키 해제
+            if (_keyboardShortcuts != null)
+            {
+                try { _keyboardShortcuts.Dispose(); }
+                catch (Exception ex) { Logger.Error("Shutdown: failed to dispose KeyboardShortcuts", ex); }
+                _keyboardShortcuts = null;
+            }
 
             // 타이머 해제
             if (_paneWidthCheckTimer != null)
@@ -418,6 +432,96 @@ namespace MailPrioritizer
             return !string.IsNullOrWhiteSpace(Config.Llm.Endpoint)
                 && !string.IsNullOrWhiteSpace(Config.Llm.ApiToken)
                 && !string.IsNullOrWhiteSpace(Config.Llm.ModelName);
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // R-08: 키보드 단축키 트리거
+        // ──────────────────────────────────────────────────────────────
+
+        /// <summary>Ctrl+Shift+M — 현재 선택 메일 분석.</summary>
+        internal async void TriggerAnalyzeSelected()
+        {
+            if (!IsConfigured()) return;
+
+            Outlook.Explorer explorer = null;
+            Outlook.Selection selection = null;
+            Outlook.MailItem mail = null;
+            try
+            {
+                explorer  = Application.ActiveExplorer();
+                if (explorer == null) return;
+                selection = explorer.Selection;
+                if (selection.Count == 0) return;
+
+                mail = selection[1] as Outlook.MailItem;
+                if (mail == null) return;
+
+                Logger.Info("TriggerAnalyzeSelected: Ctrl+Shift+M invoked");
+                SummaryControl.ShowAnalyzing();
+                var analysis = await MailProcessor.AnalyzeSingleAsync(mail);
+                SummaryControl.DisplayAnalysis(mail, analysis);
+                SummaryControl.UpdateApiStatus();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("TriggerAnalyzeSelected: failed", ex);
+                SummaryControl.ShowError(ex.Message);
+            }
+            finally
+            {
+                ComHelper.ReleaseAll(mail, selection, explorer);
+            }
+        }
+
+        /// <summary>Ctrl+Shift+1~4 — 현재 선택 메일의 우선순위를 즉시 변경.</summary>
+        internal void TriggerChangePriority(Priority newPriority)
+        {
+            Outlook.Explorer explorer = null;
+            Outlook.Selection selection = null;
+            Outlook.MailItem mail = null;
+            try
+            {
+                explorer  = Application.ActiveExplorer();
+                if (explorer == null) return;
+                selection = explorer.Selection;
+                if (selection.Count == 0) return;
+
+                mail = selection[1] as Outlook.MailItem;
+                if (mail == null) return;
+
+                Logger.Info("TriggerChangePriority: " + newPriority + " via hotkey");
+
+                Outlook.UserProperties props = null;
+                Outlook.UserProperty prop = null;
+                try
+                {
+                    props = mail.UserProperties;
+                    prop  = props.Find(Utils.MailPropertyNames.Priority)
+                            ?? props.Add(Utils.MailPropertyNames.Priority,
+                                         Outlook.OlUserPropertyType.olText);
+                    prop.Value = newPriority.ToString();
+                    mail.Save();
+                }
+                finally
+                {
+                    ComHelper.ReleaseAll(prop, props);
+                }
+
+                if (Config.Classification.AutoMoveToFolder)
+                    FolderManager.MoveToFolder(mail, newPriority);
+
+                // Task Pane 배지 갱신
+                if (SummaryControl != null && !SummaryControl.IsDisposed)
+                    SummaryControl.RefreshPriorityBadge(newPriority);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("TriggerChangePriority: failed", ex);
+            }
+            finally
+            {
+                ComHelper.ReleaseAll(mail, selection, explorer);
+            }
         }
 
         #region VSTO generated code
