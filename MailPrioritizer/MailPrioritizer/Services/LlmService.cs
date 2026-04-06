@@ -24,6 +24,11 @@ namespace MailPrioritizer.Services
         private int _concurrentRequests;
         private bool _disposed;
 
+        // R-13: Health check state
+        public DateTime? LastSuccessAt { get; private set; }
+        public DateTime? LastErrorAt   { get; private set; }
+        public string   LastErrorMessage { get; private set; }
+
         internal static readonly string DefaultSystemPrompt =
             "당신은 이메일 분석 도우미입니다. 다음 이메일을 분석하여 반드시 아래 JSON 형식으로만 응답하세요.\n\n" +
             "**우선순위 기준:**\n" +
@@ -99,6 +104,7 @@ namespace MailPrioritizer.Services
                 var result = ParseLlmResponse(responseText);
                 result.ModelName = _config.Llm.ModelName;
                 Logger.Info("AnalyzeMailAsync: complete, priority=" + result.Priority);
+                LastSuccessAt = DateTime.Now;
                 return result;
             }
             catch (OperationCanceledException)
@@ -108,6 +114,8 @@ namespace MailPrioritizer.Services
             catch (Exception ex)
             {
                 Logger.Error("AnalyzeMailAsync: API call failed", ex);
+                LastErrorAt = DateTime.Now;
+                LastErrorMessage = ex.Message;
                 return MailAnalysis.CreateFallback("API 호출 오류: " + ex.Message);
             }
             finally
