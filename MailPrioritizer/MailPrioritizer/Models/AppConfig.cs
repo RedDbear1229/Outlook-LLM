@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace MailPrioritizer.Models
@@ -71,6 +72,8 @@ namespace MailPrioritizer.Models
         public bool AutoAnalyzeNewMail { get; set; } = false;
         /// <summary>R-04: 첨부파일명을 LLM 프롬프트에 포함할지 여부.</summary>
         public bool IncludeAttachmentNames { get; set; } = true;
+        /// <summary>R-12: 마지막 배치 분석 완료 시각. null이면 전체 스캔, 값이 있으면 증분 스캔.</summary>
+        public DateTime? LastBatchAnalyzedAt { get; set; } = null;
     }
 
     // ──────────────────────────────────────────────────────────────
