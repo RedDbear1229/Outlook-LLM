@@ -45,6 +45,16 @@
       <Output TaskParameter="RibbonTypes" ItemName="RibbonTypesCollection"/>
     </FindRibbons>
 
+    <!--
+      FindRibbons가 리본 클래스를 감지하지 못한 경우(RibbonTypesCollection 비어있음)
+      폴백으로 직접 지정합니다. CreateRibbonExtensibilityObject() 오버라이드 방식을
+      사용하므로 실제 로드에는 영향이 없지만, 올바른 manifest 생성을 위해 명시합니다.
+    -->
+    <ItemGroup>
+      <RibbonTypesCollection Include="MailPrioritizer.Ribbon.MailRibbon"
+                             Condition="'@(RibbonTypesCollection)' == ''" />
+    </ItemGroup>
+
     <GenerateOfficeAddInManifest
         Condition="'$(VSTO_ProjectType)' == 'Application'"
         FriendlyName="$(FriendlyName)"

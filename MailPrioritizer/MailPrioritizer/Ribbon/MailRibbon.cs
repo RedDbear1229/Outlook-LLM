@@ -1,10 +1,12 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using MailPrioritizer.Utils;
 using Office = Microsoft.Office.Core;
 
 namespace MailPrioritizer.Ribbon
 {
+    [ComVisible(true)]
     public partial class MailRibbon : Office.IRibbonExtensibility
     {
         private Office.IRibbonUI _ribbon;
