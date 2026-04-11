@@ -8,12 +8,13 @@
     the publish\ folder with install/uninstall .bat wrappers.
 
     Output files in publish\:
+      MailPrioritizer.Installer.exe -- GUI 설치 관리자 (설치/복구/제거)
       MailPrioritizer.vsto          -- deployment manifest (share this)
       MailPrioritizer.dll.manifest  -- application manifest
       MailPrioritizer.dll           -- add-in DLL
       Newtonsoft.Json.dll           -- dependency
-      install.bat                   -- VSTOInstaller wrapper
-      uninstall.bat                 -- uninstall wrapper
+      install.bat                   -- VSTOInstaller wrapper (레거시)
+      uninstall.bat                 -- uninstall wrapper (레거시)
 
     Installation on target PC:
       1. Copy publish\ folder to shared drive or USB
@@ -44,10 +45,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # Paths
-$ScriptDir  = $PSScriptRoot
-$ProjectDir = Join-Path $ScriptDir "MailPrioritizer\MailPrioritizer"
-$ProjFile   = Join-Path $ProjectDir "MailPrioritizer.csproj"
-$BinRelease = Join-Path $ProjectDir "bin\Release"
+$ScriptDir       = $PSScriptRoot
+$ProjectDir      = Join-Path $ScriptDir "MailPrioritizer\MailPrioritizer"
+$ProjFile        = Join-Path $ProjectDir "MailPrioritizer.csproj"
+$BinRelease      = Join-Path $ProjectDir "bin\Release"
+$InstallerDir    = Join-Path $ScriptDir "MailPrioritizer\MailPrioritizer.Installer"
+$InstallerProj   = Join-Path $InstallerDir "MailPrioritizer.Installer.csproj"
+$InstallerBin    = Join-Path $InstallerDir "bin\Release"
 
 if ($PublishDir -eq "") {
     $PublishDir = Join-Path $ScriptDir "publish"
@@ -73,8 +77,8 @@ Write-Host "  버전: $PublishVersion"
 Write-Host "  출력: $PublishDir"
 Write-Host ""
 
-# [1/3] Release build
-Write-Host "[1/3] Release 빌드 중..." -ForegroundColor Yellow
+# [1/4] Release build (Add-in)
+Write-Host "[1/4] Add-in Release 빌드 중..." -ForegroundColor Yellow
 
 & $MSBuild $ProjFile `
     /t:Build `
@@ -88,8 +92,22 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "  완료." -ForegroundColor Green
 
-# [2/3] Generate VSTO manifests (unsigned)
-Write-Host "[2/3] VSTO 매니페스트 생성 중 (v$PublishVersion)..." -ForegroundColor Yellow
+# [1b] Release build (Installer)
+Write-Host "[1b] Installer Release 빌드 중..." -ForegroundColor Yellow
+
+& $MSBuild $InstallerProj `
+    /t:Build `
+    /p:Configuration=Release `
+    /v:minimal /nologo
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Installer 빌드 실패 (exit code $LASTEXITCODE)"
+    exit $LASTEXITCODE
+}
+Write-Host "  완료." -ForegroundColor Green
+
+# [2/4] Generate VSTO manifests (unsigned)
+Write-Host "[2/4] VSTO 매니페스트 생성 중 (v$PublishVersion)..." -ForegroundColor Yellow
 
 & $MSBuild $ProjFile `
     /t:VisualStudioForApplicationsBuild `
@@ -111,8 +129,8 @@ foreach ($f in @("MailPrioritizer.dll.manifest", "MailPrioritizer.vsto")) {
 }
 Write-Host "  완료." -ForegroundColor Green
 
-# [3/3] Package publish folder
-Write-Host "[3/3] 배포 패키지 생성 중..." -ForegroundColor Yellow
+# [3/4] Package publish folder
+Write-Host "[3/4] 배포 패키지 생성 중..." -ForegroundColor Yellow
 
 if (Test-Path $PublishDir) {
     Remove-Item $PublishDir -Recurse -Force
@@ -134,6 +152,15 @@ foreach ($f in $copyFiles) {
         Copy-Item $src $PublishDir -Force
         Write-Host "    + $f"
     }
+}
+
+# Installer EXE 복사
+$installerExe = Join-Path $InstallerBin "MailPrioritizer.Installer.exe"
+if (Test-Path $installerExe) {
+    Copy-Item $installerExe $PublishDir -Force
+    Write-Host "    + MailPrioritizer.Installer.exe"
+} else {
+    Write-Host "    [경고] Installer EXE 없음: $installerExe" -ForegroundColor Yellow
 }
 
 # Write install.bat
@@ -190,13 +217,16 @@ Write-Host "====================================================" -ForegroundCol
 Write-Host ""
 Write-Host "  출력 폴더: $PublishDir"
 Write-Host ""
-Write-Host "  배포 방법:"
+Write-Host "  배포 방법 (권장):"
 Write-Host "    1. publish\ 폴더 전체를 공유 드라이브 / USB에 복사"
-Write-Host "    2. 대상 PC에서 install.bat 실행 (또는 .vsto 더블클릭)"
-Write-Host "    3. 보안 경고 대화상자에서 [설치] 클릭"
+Write-Host "    2. 대상 PC에서 MailPrioritizer.Installer.exe 실행"
+Write-Host "    3. [설치] 버튼 클릭 후 Outlook 재시작"
+Write-Host ""
+Write-Host "  리본이 사라진 경우:"
+Write-Host "    MailPrioritizer.Installer.exe → [복구] 버튼"
 Write-Host ""
 Write-Host "  제거 방법:"
-Write-Host "    uninstall.bat 실행"
+Write-Host "    MailPrioritizer.Installer.exe → [제거] 버튼"
 Write-Host ""
 
 if ($Open) {

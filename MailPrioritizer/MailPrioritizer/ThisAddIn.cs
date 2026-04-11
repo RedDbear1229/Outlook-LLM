@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using MailPrioritizer.Config;
@@ -6,6 +7,7 @@ using MailPrioritizer.Models;
 using MailPrioritizer.Services;
 using MailPrioritizer.TaskPane;
 using MailPrioritizer.Utils;
+using Microsoft.Win32;
 using Office = Microsoft.Office.Core;
 using Outlook = Microsoft.Office.Interop.Outlook;
 
@@ -50,6 +52,9 @@ namespace MailPrioritizer
 
             // 로거 초기화 (모든 서비스보다 먼저)
             Logger.Initialize();
+
+            // 자가 복구: LoadBehavior 유지 및 Resiliency 비활성 목록 정리
+            SelfHealRegistration();
 
             // 서비스 초기화
             ConfigManager = new ConfigManager();
@@ -184,6 +189,64 @@ namespace MailPrioritizer
             }
 
             Logger.Info("Shutdown: complete");
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // 자가 복구: 등록 상태 유지
+        // ──────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Startup 시 HKCU 레지스트리를 점검하여 Add-in이 다음 세션에도 로드되도록 보장합니다.
+        ///   1. LoadBehavior가 0이면 3으로 복원 (Outlook 충돌 후 비활성화된 경우)
+        ///   2. Resiliency\DisabledItems에서 MailPrioritizer 항목 제거
+        /// 레지스트리 접근 실패 시 경고 로그만 출력하고 Add-in 시작은 계속됩니다.
+        /// </summary>
+        private void SelfHealRegistration()
+        {
+            const string addInKey      = @"Software\Microsoft\Office\16.0\Outlook\Addins\MailPrioritizer";
+            const string resiliencyKey = @"Software\Microsoft\Office\16.0\Outlook\Resiliency\DisabledItems";
+
+            try
+            {
+                // LoadBehavior 유지 (0 → 3 복원)
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(addInKey, writable: true))
+                {
+                    if (key != null)
+                    {
+                        int lb = Convert.ToInt32(key.GetValue("LoadBehavior", 3));
+                        if (lb != 3)
+                        {
+                            key.SetValue("LoadBehavior", 3, RegistryValueKind.DWord);
+                            Logger.Info("SelfHeal: LoadBehavior restored to 3 (was " + lb + ")");
+                        }
+                    }
+                }
+
+                // Resiliency 비활성 목록에서 제거
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(resiliencyKey, writable: true))
+                {
+                    if (key == null) return;
+                    foreach (string name in key.GetValueNames())
+                    {
+                        try
+                        {
+                            byte[] bytes = key.GetValue(name) as byte[];
+                            if (bytes == null) continue;
+                            string text = Encoding.Unicode.GetString(bytes);
+                            if (text.IndexOf("MailPrioritizer", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                key.DeleteValue(name);
+                                Logger.Info("SelfHeal: removed Resiliency disabled entry: " + name);
+                            }
+                        }
+                        catch { /* 개별 항목 오류 무시 */ }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("SelfHeal: registry access failed — " + ex.Message);
+            }
         }
 
         // ──────────────────────────────────────────────────────────────
