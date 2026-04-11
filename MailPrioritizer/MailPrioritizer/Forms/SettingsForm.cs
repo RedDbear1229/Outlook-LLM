@@ -577,10 +577,11 @@ namespace MailPrioritizer.Forms
             config.Display.ThemeName       = rdoThemeGrey.Checked ? "grey"
                                            : rdoThemeDark.Checked ? "dark"
                                            : "light";
-            config.Processing.MaxBodyLength       = (int)numMaxBody.Value;
+            config.Processing.MaxBodyLength          = (int)numMaxBody.Value;
             config.Processing.ConcurrentRequests     = _original.Processing.ConcurrentRequests;
             config.Processing.AutoAnalyzeNewMail     = chkAutoAnalyze.Checked;
             config.Processing.IncludeAttachmentNames = chkIncludeAttachments.Checked;
+            config.Processing.LastBatchAnalyzedAt    = _original.Processing.LastBatchAnalyzedAt;
 
             var selectedStore = cmbStore.SelectedItem as StoreItem;
             config.Processing.TargetStoreId = selectedStore != null ? selectedStore.StoreId : "";
