@@ -312,11 +312,12 @@ namespace MailPrioritizer.TaskPane
         {
             if (string.IsNullOrEmpty(_currentEntryId)) return;
 
+            Outlook.NameSpace session = null;
             Outlook.MailItem mail = null;
             try
             {
-                mail = Globals.ThisAddIn.Application.Session.GetItemFromID(_currentEntryId)
-                       as Outlook.MailItem;
+                session = Globals.ThisAddIn.Application.Session;
+                mail = session.GetItemFromID(_currentEntryId) as Outlook.MailItem;
                 if (mail == null) return;
 
                 var existing = Globals.ThisAddIn.MailProcessor.LoadExistingAnalysis(mail);
@@ -331,7 +332,7 @@ namespace MailPrioritizer.TaskPane
             }
             finally
             {
-                ComHelper.Release(mail);
+                ComHelper.ReleaseAll(mail, session);
             }
         }
 
@@ -341,11 +342,12 @@ namespace MailPrioritizer.TaskPane
 
             Priority newPriority = (Priority)(_cmbPriority.SelectedIndex + 1);
 
+            Outlook.NameSpace session = null;
             Outlook.MailItem mail = null;
             try
             {
-                mail = Globals.ThisAddIn.Application.Session.GetItemFromID(_currentEntryId)
-                       as Outlook.MailItem;
+                session = Globals.ThisAddIn.Application.Session;
+                mail = session.GetItemFromID(_currentEntryId) as Outlook.MailItem;
                 if (mail == null) return;
 
                 Outlook.UserProperties props = null;
@@ -385,7 +387,7 @@ namespace MailPrioritizer.TaskPane
             }
             finally
             {
-                ComHelper.Release(mail);
+                ComHelper.ReleaseAll(mail, session);
             }
         }
 
@@ -401,8 +403,16 @@ namespace MailPrioritizer.TaskPane
             Outlook.MailItem mail = null;
             try
             {
-                mail = Globals.ThisAddIn.Application.Session.GetItemFromID(_currentEntryId)
-                       as Outlook.MailItem;
+                // Session is only needed for lookup — release it immediately after obtaining mail
+                Outlook.NameSpace lookupSession = Globals.ThisAddIn.Application.Session;
+                try
+                {
+                    mail = lookupSession.GetItemFromID(_currentEntryId) as Outlook.MailItem;
+                }
+                finally
+                {
+                    ComHelper.Release(lookupSession);
+                }
                 if (mail == null) return;
 
                 if (clearFirst)

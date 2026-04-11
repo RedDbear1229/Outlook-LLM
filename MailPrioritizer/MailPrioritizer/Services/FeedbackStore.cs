@@ -46,9 +46,27 @@ namespace MailPrioritizer.Services
             public string MostMisclassified { get; set; }
         }
 
+        /// <summary>90일 이상 된 피드백 항목을 자동 삭제한다.</summary>
+        private const int RetentionDays = 90;
+
         public FeedbackStore()
         {
             _items = LoadFromDisk();
+            PurgeOldItems();
+        }
+
+        private void PurgeOldItems()
+        {
+            DateTime cutoff = DateTime.Now.AddDays(-RetentionDays);
+            lock (_lock)
+            {
+                int removed = _items.RemoveAll(x => x.ChangedAt < cutoff);
+                if (removed > 0)
+                {
+                    SaveToDisk();
+                    Logger.Info("FeedbackStore: purged " + removed + " items older than " + RetentionDays + " days");
+                }
+            }
         }
 
         public int CorrectionCount

@@ -154,13 +154,16 @@ namespace MailPrioritizer.Services
 
                 // Phase 1: STA에서 COM 데이터 추출
                 var batchItems = new List<MailDataItem>();
+                Outlook.NameSpace p1Session = outlookApp.Session;
+                try
+                {
                 for (int j = 0; j < count; j++)
                 {
                     string entryId = entryIds[i + j];
                     Outlook.MailItem mail = null;
                     try
                     {
-                        mail = outlookApp.Session.GetItemFromID(entryId) as Outlook.MailItem;
+                        mail = p1Session.GetItemFromID(entryId) as Outlook.MailItem;
                         if (mail == null) continue;
 
                         // R-01: 규칙 매칭 (COM 데이터 추출 전에 확인)
@@ -201,6 +204,11 @@ namespace MailPrioritizer.Services
                     {
                         ComHelper.Release(mail);
                     }
+                }
+                }
+                finally
+                {
+                    ComHelper.Release(p1Session);
                 }
 
                 if (batchItems.Count == 0) continue;
@@ -244,6 +252,9 @@ namespace MailPrioritizer.Services
                 }
 
                 // Phase 3: STA에서 COM 작업 (UserProperty 저장 + 폴더 이동) — 순차 처리
+                Outlook.NameSpace p3Session = outlookApp.Session;
+                try
+                {
                 for (int j = 0; j < batchItems.Count; j++)
                 {
                     var item = batchItems[j];
@@ -252,7 +263,7 @@ namespace MailPrioritizer.Services
                     Outlook.MailItem freshMail = null;
                     try
                     {
-                        freshMail = outlookApp.Session.GetItemFromID(item.EntryId) as Outlook.MailItem;
+                        freshMail = p3Session.GetItemFromID(item.EntryId) as Outlook.MailItem;
                         if (freshMail != null && !analysis.IsFallback)
                             ApplyAnalysisToMail(freshMail, analysis);
                     }
@@ -302,6 +313,11 @@ namespace MailPrioritizer.Services
                     }
 
                     progress?.Report(result);
+                }
+                }
+                finally
+                {
+                    ComHelper.Release(p3Session);
                 }
             }
 
@@ -981,6 +997,7 @@ namespace MailPrioritizer.Services
 
         private static string CsvEscape(string value)
         {
+            if (value == null) return "";
             if (value.Contains(",") || value.Contains("\"") || value.Contains("\n"))
                 return "\"" + value.Replace("\"", "\"\"") + "\"";
             return value;

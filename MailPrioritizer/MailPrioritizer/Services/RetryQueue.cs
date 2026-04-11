@@ -21,6 +21,7 @@ namespace MailPrioritizer.Services
         private readonly object _lock = new object();
 
         public const int MaxRetries = 3;
+        public const int MaxQueueSize = 1000;
 
         public class RetryItem
         {
@@ -40,13 +41,18 @@ namespace MailPrioritizer.Services
             get { lock (_lock) return _items.Count; }
         }
 
-        /// <summary>실패한 메일을 큐에 추가한다. 이미 존재하면 무시.</summary>
+        /// <summary>실패한 메일을 큐에 추가한다. 이미 존재하거나 큐가 가득 차면 무시.</summary>
         public void Enqueue(string entryId)
         {
             if (string.IsNullOrEmpty(entryId)) return;
             lock (_lock)
             {
                 if (_items.Any(x => x.EntryId == entryId)) return;
+                if (_items.Count >= MaxQueueSize)
+                {
+                    Logger.Warn("RetryQueue: max queue size (" + MaxQueueSize + ") reached, dropping entryId=" + entryId);
+                    return;
+                }
                 _items.Add(new RetryItem
                 {
                     EntryId = entryId,

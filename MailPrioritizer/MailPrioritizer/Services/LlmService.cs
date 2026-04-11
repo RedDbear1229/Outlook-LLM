@@ -196,14 +196,16 @@ namespace MailPrioritizer.Services
             };
 
             // 429 Rate Limit 시 1회 재시도
-            HttpResponseMessage response = await SendWithRetryAsync(factory, ct);
-            response.EnsureSuccessStatusCode();
+            using (var response = await SendWithRetryAsync(factory, ct))
+            {
+                response.EnsureSuccessStatusCode();
 
-            string responseJson = await response.Content.ReadAsStringAsync();
-            var jObj = JObject.Parse(responseJson);
+                string responseJson = await response.Content.ReadAsStringAsync();
+                var jObj = JObject.Parse(responseJson);
 
-            // 응답: { "content": [{ "type": "text", "text": "..." }] }
-            return jObj["content"]?[0]?["text"]?.ToString() ?? "";
+                // 응답: { "content": [{ "type": "text", "text": "..." }] }
+                return jObj["content"]?[0]?["text"]?.ToString() ?? "";
+            }
         }
 
         // ──────────────────────────────────────────────────────────────
@@ -236,14 +238,16 @@ namespace MailPrioritizer.Services
                 return req;
             };
 
-            HttpResponseMessage response = await SendWithRetryAsync(factory, ct);
-            response.EnsureSuccessStatusCode();
+            using (var response = await SendWithRetryAsync(factory, ct))
+            {
+                response.EnsureSuccessStatusCode();
 
-            string responseJson = await response.Content.ReadAsStringAsync();
-            var jObj = JObject.Parse(responseJson);
+                string responseJson = await response.Content.ReadAsStringAsync();
+                var jObj = JObject.Parse(responseJson);
 
-            // 응답: { "choices": [{ "message": { "content": "..." } }] }
-            return jObj["choices"]?[0]?["message"]?["content"]?.ToString() ?? "";
+                // 응답: { "choices": [{ "message": { "content": "..." } }] }
+                return jObj["choices"]?[0]?["message"]?["content"]?.ToString() ?? "";
+            }
         }
 
         /// <summary>429/5xx 시 지수 백오프로 최대 3회 재시도. factory로 매번 새 HttpRequestMessage 생성.</summary>

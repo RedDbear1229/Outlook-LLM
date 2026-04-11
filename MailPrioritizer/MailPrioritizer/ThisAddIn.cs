@@ -206,8 +206,18 @@ namespace MailPrioritizer
         /// </summary>
         private void SelfHealRegistration()
         {
-            const string addInKey      = @"Software\Microsoft\Office\16.0\Outlook\Addins\MailPrioritizer";
-            const string resiliencyKey = @"Software\Microsoft\Office\16.0\Outlook\Resiliency\DisabledItems";
+            // Outlook Application.Version returns e.g. "16.0.12345.67890" — extract major.minor
+            string officeVer = "16.0";
+            try
+            {
+                string appVer = Application.Version ?? "";
+                int dot2 = appVer.IndexOf('.', appVer.IndexOf('.') + 1);
+                if (dot2 > 0) officeVer = appVer.Substring(0, dot2);
+            }
+            catch { /* fall back to 16.0 */ }
+
+            string addInKey      = @"Software\Microsoft\Office\" + officeVer + @"\Outlook\Addins\MailPrioritizer";
+            string resiliencyKey = @"Software\Microsoft\Office\" + officeVer + @"\Outlook\Resiliency\DisabledItems";
 
             try
             {
@@ -285,10 +295,12 @@ namespace MailPrioritizer
                     continue;
                 }
 
+                Outlook.NameSpace retrySession = null;
                 Outlook.MailItem mail = null;
                 try
                 {
-                    mail = Application.Session.GetItemFromID(item.EntryId) as Outlook.MailItem;
+                    retrySession = Application.Session;
+                    mail = retrySession.GetItemFromID(item.EntryId) as Outlook.MailItem;
                     if (mail == null)
                     {
                         RetryQueue.Remove(item.EntryId);
@@ -318,7 +330,7 @@ namespace MailPrioritizer
                 }
                 finally
                 {
-                    ComHelper.Release(mail);
+                    ComHelper.ReleaseAll(mail, retrySession);
                 }
             }
         }
