@@ -57,6 +57,8 @@ namespace MailPrioritizer.Models
         public bool TaskPaneVisible { get; set; } = true;
         /// <summary>R-03: Outlook 재시작 시 Task Pane 너비 복원.</summary>
         public int TaskPaneWidth { get; set; } = 320;
+        /// <summary>Task Pane 색상 테마. "light" / "grey" / "dark"</summary>
+        public string ThemeName { get; set; } = "light";
     }
 
     public class ProcessingConfig

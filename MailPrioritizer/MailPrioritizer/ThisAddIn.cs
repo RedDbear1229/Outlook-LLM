@@ -114,6 +114,9 @@ namespace MailPrioritizer
             // NewMailEx 이벤트 (#11 신규 메일 자동 분석)
             Application.NewMailEx += Application_NewMailEx;
 
+            // 테마 초기 적용
+            SummaryControl.ApplyTheme(TaskPane.ThemePalette.FromName(Config.Display.ThemeName));
+
             // R-08: 키보드 단축키 등록
             _keyboardShortcuts = new Utils.KeyboardShortcutManager(SynchronizationContext.Current);
 
@@ -481,6 +484,9 @@ namespace MailPrioritizer
             // R-03: 설정 변경 시 Task Pane 너비도 반영
             if (_summaryPane != null && newConfig.Display.TaskPaneWidth > 0)
                 _summaryPane.Width = newConfig.Display.TaskPaneWidth;
+
+            // 테마 즉시 적용
+            SummaryControl.ApplyTheme(TaskPane.ThemePalette.FromName(newConfig.Display.ThemeName));
 
             Logger.Info("ApplyConfigChange: autoAnalyze=" + newConfig.Processing.AutoAnalyzeNewMail
                 + ", targetStore=" + (string.IsNullOrEmpty(newConfig.Processing.TargetStoreId) ? "(default)" : "custom"));

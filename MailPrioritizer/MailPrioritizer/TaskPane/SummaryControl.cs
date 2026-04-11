@@ -15,35 +15,41 @@ namespace MailPrioritizer.TaskPane
     /// </summary>
     public class SummaryControl : UserControl
     {
-        private Panel _pnlPriorityBadge;
-        private Label _lblPriorityText;
-        private Label _lblSummaryHeader;
-        private Label _lblSummary;
-        private Label _lblReasonHeader;
-        private Label _lblReason;
-        private Panel _pnlDivider;
-        private Label _lblChangePriority;
-        private ComboBox _cmbPriority;
-        private Button _btnReanalyze;
-        private Button _btnMoveFolder;
-        private Panel _pnlNotAnalyzed;
-        private Label _lblNotAnalyzed;
-        private Button _btnAnalyzeNow;
-        private Panel _pnlAnalyzing;
-        private Label _lblAnalyzing;
-        private Panel _pnlStats;
-        private Label _lblStatsTitle;
-        private Label _lblStatsContent;
-        private Button _btnRefreshStats;
-        private ToolTip _toolTip;
-        private Label _lblApiStatus;
+        // ── 컨트롤 필드 ─────────────────────────────────────────────────
+        private Panel           _pnlPriorityBadge;
+        private Label           _lblPriorityText;
+        private Label           _lblSummaryHeader;
+        private Label           _lblSummary;
+        private Label           _lblReasonHeader;
+        private Label           _lblReason;
+        private Panel           _pnlDivider;
+        private Label           _lblChangePriority;
+        private ComboBox        _cmbPriority;
+        private Button          _btnReanalyze;
+        private Button          _btnMoveFolder;
+        private Panel           _pnlNotAnalyzed;
+        private Label           _lblNotAnalyzed;
+        private Button          _btnAnalyzeNow;
+        private Panel           _pnlAnalyzing;
+        private Label           _lblAnalyzing;
+        private Panel           _pnlStats;
+        private Label           _lblStatsTitle;
+        private Label           _lblStatsContent;
+        private Button          _btnRefreshStats;
+        private ToolTip         _toolTip;
+        private Label           _lblApiStatus;
 
-        // 현재 표시 중인 메일 (EntryID로 참조, COM 객체 직접 보관 지양)
-        private string _currentEntryId;
+        // ApplyTheme 에서 접근하기 위해 필드로 보관
+        private TableLayoutPanel _layout;
+        private FlowLayoutPanel  _btnPanel;
+        private Panel            _statsDivider;
 
-        // R-06: 피드백 수집용 — 현재 표시 중인 분석 결과 (우선순위 변경 전 원본)
-        private Models.MailAnalysis _currentAnalysis;
+        // ── 상태 ────────────────────────────────────────────────────────
+        private string       _currentEntryId;
+        private MailAnalysis _currentAnalysis;
+        private ThemePalette _currentTheme = ThemePalette.Light;
 
+        // ── 생성자 ──────────────────────────────────────────────────────
         public SummaryControl()
         {
             InitializeComponent();
@@ -63,7 +69,7 @@ namespace MailPrioritizer.TaskPane
         {
             SafeInvoke(() =>
             {
-                _currentEntryId = mail?.EntryID;
+                _currentEntryId  = mail?.EntryID;
                 _currentAnalysis = analysis;
                 RenderAnalysis(analysis);
             });
@@ -74,8 +80,8 @@ namespace MailPrioritizer.TaskPane
             SafeInvoke(() =>
             {
                 SetViewState(showNotAnalyzed: true);
-                _lblNotAnalyzed.Text = "메일을 선택하면 분석 결과가 표시됩니다.";
-                _btnAnalyzeNow.Visible = false;
+                _lblNotAnalyzed.Text    = "메일을 선택하면 분석 결과가 표시됩니다.";
+                _btnAnalyzeNow.Visible  = false;
             });
         }
 
@@ -83,9 +89,9 @@ namespace MailPrioritizer.TaskPane
         {
             SafeInvoke(() =>
             {
-                _currentEntryId = mail?.EntryID;
+                _currentEntryId       = mail?.EntryID;
                 SetViewState(showNotAnalyzed: true);
-                _lblNotAnalyzed.Text = "아직 분석되지 않은 메일입니다.";
+                _lblNotAnalyzed.Text   = "아직 분석되지 않은 메일입니다.";
                 _btnAnalyzeNow.Visible = true;
             });
         }
@@ -95,7 +101,7 @@ namespace MailPrioritizer.TaskPane
             SafeInvoke(() =>
             {
                 SetViewState(showNotAnalyzed: true);
-                _lblNotAnalyzed.Text = "오류: " + message;
+                _lblNotAnalyzed.Text   = "오류: " + message;
                 _btnAnalyzeNow.Visible = false;
             });
         }
@@ -106,8 +112,9 @@ namespace MailPrioritizer.TaskPane
             SafeInvoke(() =>
             {
                 if (!_pnlPriorityBadge.Visible) return;
-                _pnlPriorityBadge.BackColor = GetPriorityColor(priority);
-                _lblPriorityText.Text = priority.ToEmoji() + " " + priority.ToKorean();
+                _pnlPriorityBadge.BackColor = GetBadgeBack(priority);
+                _lblPriorityText.ForeColor  = GetBadgeText(priority);
+                _lblPriorityText.Text       = priority.ToEmoji() + " " + priority.ToKorean();
             });
         }
 
@@ -123,30 +130,128 @@ namespace MailPrioritizer.TaskPane
                     && (!svc.LastSuccessAt.HasValue || svc.LastErrorAt > svc.LastSuccessAt))
                 {
                     string when = svc.LastErrorAt.Value.ToString("HH:mm");
-                    string msg = svc.LastErrorMessage ?? "";
+                    string msg  = svc.LastErrorMessage ?? "";
                     if (msg.Length > 50) msg = msg.Substring(0, 50) + "...";
-                    _lblApiStatus.Text = "API 오류 " + when + ": " + msg;
+                    _lblApiStatus.Text      = "API 오류 " + when + ": " + msg;
                     _lblApiStatus.ForeColor = Color.FromArgb(180, 0, 0);
                 }
                 else if (svc.LastSuccessAt.HasValue)
                 {
                     string when = svc.LastSuccessAt.Value.ToString("HH:mm");
-                    _lblApiStatus.Text = "마지막 성공: " + when;
+                    _lblApiStatus.Text      = "마지막 성공: " + when;
                     _lblApiStatus.ForeColor = Color.FromArgb(0, 130, 0);
                 }
                 else
                 {
-                    _lblApiStatus.Text = "API 미호출";
-                    _lblApiStatus.ForeColor = Color.Gray;
+                    _lblApiStatus.Text      = "API 미호출";
+                    _lblApiStatus.ForeColor = _currentTheme.HintText;
                 }
             });
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // 테마 적용
+        // ──────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Task Pane 전체에 지정된 테마 팔레트를 적용합니다.
+        /// ThisAddIn.ApplyConfigChange() 또는 Startup에서 호출합니다.
+        /// </summary>
+        internal void ApplyTheme(ThemePalette palette)
+        {
+            SafeInvoke(() =>
+            {
+                _currentTheme = palette;
+
+                // 루트 및 레이아웃 배경
+                BackColor        = palette.PanelBackground;
+                _layout.BackColor = palette.PanelBackground;
+
+                // 우선순위 배지
+                _pnlPriorityBadge.BackColor = palette.PanelBackground;
+                if (_currentAnalysis != null)
+                {
+                    _pnlPriorityBadge.BackColor = GetBadgeBack(_currentAnalysis.Priority);
+                    _lblPriorityText.ForeColor   = GetBadgeText(_currentAnalysis.Priority);
+                }
+                else
+                {
+                    _lblPriorityText.ForeColor = palette.PrimaryText;
+                }
+
+                // 요약 영역
+                _lblSummaryHeader.ForeColor = palette.PrimaryText;
+                _lblSummaryHeader.BackColor = palette.PanelBackground;
+                _lblSummary.ForeColor       = palette.PrimaryText;
+                _lblSummary.BackColor       = palette.ControlBackground;
+
+                // 판단 근거
+                _lblReasonHeader.ForeColor = palette.PrimaryText;
+                _lblReasonHeader.BackColor = palette.PanelBackground;
+                _lblReason.ForeColor       = palette.SecondaryText;
+                _lblReason.BackColor       = palette.PanelBackground;
+
+                // 구분선
+                _pnlDivider.BackColor   = palette.Divider;
+                _statsDivider.BackColor = palette.Divider;
+
+                // 우선순위 변경 컨트롤
+                _lblChangePriority.ForeColor = palette.PrimaryText;
+                _lblChangePriority.BackColor = palette.PanelBackground;
+                _cmbPriority.BackColor       = palette.ComboBack;
+                _cmbPriority.ForeColor       = palette.ComboText;
+
+                // 버튼
+                ApplyButtonTheme(_btnReanalyze,    palette);
+                ApplyButtonTheme(_btnMoveFolder,   palette);
+                ApplyButtonTheme(_btnAnalyzeNow,   palette);
+                ApplyButtonTheme(_btnRefreshStats, palette);
+                _btnPanel.BackColor = palette.PanelBackground;
+
+                // 미분석 패널
+                _pnlNotAnalyzed.BackColor   = palette.PanelBackground;
+                _lblNotAnalyzed.ForeColor   = palette.HintText;
+                _lblNotAnalyzed.BackColor   = palette.PanelBackground;
+
+                // 분석 중 패널
+                _pnlAnalyzing.BackColor   = palette.PanelBackground;
+                _lblAnalyzing.ForeColor   = palette.AnalyzingText;
+                _lblAnalyzing.BackColor   = palette.PanelBackground;
+
+                // 통계 패널
+                _pnlStats.BackColor       = palette.PanelBackground;
+                _lblStatsTitle.ForeColor  = palette.PrimaryText;
+                _lblStatsTitle.BackColor  = palette.PanelBackground;
+                _lblStatsContent.ForeColor = palette.SecondaryText;
+                _lblStatsContent.BackColor = palette.PanelBackground;
+
+                // API 상태 레이블
+                _lblApiStatus.BackColor = palette.PanelBackground;
+
+                Invalidate(true);
+            });
+        }
+
+        private static void ApplyButtonTheme(Button btn, ThemePalette palette)
+        {
+            btn.BackColor = palette.ButtonBackground;
+            btn.ForeColor = palette.ButtonText;
+            btn.UseVisualStyleBackColor = false;
+            if (palette.ButtonFlat)
+            {
+                btn.FlatStyle = FlatStyle.Flat;
+                btn.FlatAppearance.BorderColor = palette.Border;
+            }
+            else
+            {
+                btn.FlatStyle = FlatStyle.Standard;
+            }
         }
 
         // ──────────────────────────────────────────────────────────────
         // 렌더링
         // ──────────────────────────────────────────────────────────────
 
-        /// <summary>모든 가시성 플래그를 한번에 설정. 기본값은 모두 false.</summary>
         private void SetViewState(
             bool showResult = false, bool showNotAnalyzed = false, bool showAnalyzing = false)
         {
@@ -168,7 +273,8 @@ namespace MailPrioritizer.TaskPane
         {
             SetViewState(showResult: true);
 
-            _pnlPriorityBadge.BackColor = GetPriorityColor(analysis.Priority);
+            _pnlPriorityBadge.BackColor = GetBadgeBack(analysis.Priority);
+            _lblPriorityText.ForeColor  = GetBadgeText(analysis.Priority);
             _lblPriorityText.Text = analysis.Priority.ToEmoji() + " " + analysis.Priority.ToKorean();
 
             if (analysis.IsFallback)
@@ -180,7 +286,7 @@ namespace MailPrioritizer.TaskPane
 
             _lblReason.Text = analysis.PriorityReason ?? "";
 
-            // R-07: 분석 모델/출처 정보 (툴팁으로 표시)
+            // R-07: 분석 모델/출처 정보 (툴팁)
             string tooltip = analysis.IsRuleBased ? "규칙 기반 분류"
                 : !string.IsNullOrEmpty(analysis.ModelName)
                     ? "모델: " + analysis.ModelName
@@ -243,12 +349,12 @@ namespace MailPrioritizer.TaskPane
                 if (mail == null) return;
 
                 Outlook.UserProperties props = null;
-                Outlook.UserProperty prop = null;
+                Outlook.UserProperty prop    = null;
                 try
                 {
                     props = mail.UserProperties;
-                    prop = props.Find(MailPropertyNames.Priority) ??
-                           props.Add(MailPropertyNames.Priority, Outlook.OlUserPropertyType.olText);
+                    prop  = props.Find(MailPropertyNames.Priority) ??
+                            props.Add(MailPropertyNames.Priority, Outlook.OlUserPropertyType.olText);
                     prop.Value = newPriority.ToString();
                     mail.Save();
                 }
@@ -260,7 +366,7 @@ namespace MailPrioritizer.TaskPane
                 if (Globals.ThisAddIn.Config.Classification.AutoMoveToFolder)
                     Globals.ThisAddIn.FolderManager.MoveToFolder(mail, newPriority);
 
-                // R-06: LLM 분류와 사용자 변경이 다를 때 피드백 기록
+                // R-06: 피드백 기록
                 if (_currentAnalysis != null && !_currentAnalysis.IsRuleBased
                     && !_currentAnalysis.IsFallback
                     && _currentAnalysis.Priority != newPriority)
@@ -270,11 +376,12 @@ namespace MailPrioritizer.TaskPane
                         mail.Subject ?? "",
                         _currentAnalysis.Priority,
                         newPriority);
-                    _currentAnalysis = null; // 동일 메일에 중복 기록 방지
+                    _currentAnalysis = null;
                 }
 
-                _pnlPriorityBadge.BackColor = GetPriorityColor(newPriority);
-                _lblPriorityText.Text = newPriority.ToEmoji() + " " + newPriority.ToKorean();
+                _pnlPriorityBadge.BackColor = GetBadgeBack(newPriority);
+                _lblPriorityText.ForeColor  = GetBadgeText(newPriority);
+                _lblPriorityText.Text       = newPriority.ToEmoji() + " " + newPriority.ToKorean();
             }
             finally
             {
@@ -322,32 +429,40 @@ namespace MailPrioritizer.TaskPane
         // 헬퍼
         // ──────────────────────────────────────────────────────────────
 
-        private static Color GetPriorityColor(Priority priority)
+        private Color GetBadgeBack(Priority priority)
         {
             switch (priority)
             {
-                case Priority.Urgent: return Color.FromArgb(255, 235, 235);
-                case Priority.High:   return Color.FromArgb(255, 243, 224);
-                case Priority.Normal: return Color.FromArgb(232, 245, 233);
-                case Priority.Low:    return Color.FromArgb(245, 245, 245);
-                default:              return Color.White;
+                case Priority.Urgent: return _currentTheme.UrgentBadge;
+                case Priority.High:   return _currentTheme.HighBadge;
+                case Priority.Normal: return _currentTheme.NormalBadge;
+                case Priority.Low:    return _currentTheme.LowBadge;
+                default:              return _currentTheme.PanelBackground;
             }
         }
 
-        /// <summary>받은편지함 통계를 갱신한다. COM 작업은 STA에서, UI 블로킹 최소화.</summary>
+        private Color GetBadgeText(Priority priority)
+        {
+            switch (priority)
+            {
+                case Priority.Urgent: return _currentTheme.UrgentBadgeText;
+                case Priority.High:   return _currentTheme.HighBadgeText;
+                case Priority.Normal: return _currentTheme.NormalBadgeText;
+                case Priority.Low:    return _currentTheme.LowBadgeText;
+                default:              return _currentTheme.PrimaryText;
+            }
+        }
+
+        /// <summary>받은편지함 통계를 갱신한다.</summary>
         public void RefreshStats()
         {
-            _lblStatsContent.Text = "통계 로드 중...";
+            _lblStatsContent.Text    = "통계 로드 중...";
             _btnRefreshStats.Enabled = false;
 
             try
             {
-                // STA 스레드에서 COM 작업 수행 (Outlook 이벤트 핸들러이므로 이미 STA)
-                var stats = Globals.ThisAddIn.MailProcessor.CollectInboxStats(
-                    Globals.ThisAddIn.Application);
-
-                // R-06: 정확도 통계
-                var fbStats = Globals.ThisAddIn.FeedbackStore.GetStats(stats.Analyzed);
+                var stats    = Globals.ThisAddIn.MailProcessor.CollectInboxStats(Globals.ThisAddIn.Application);
+                var fbStats  = Globals.ThisAddIn.FeedbackStore.GetStats(stats.Analyzed);
 
                 string accuracyLine = stats.Analyzed > 0
                     ? string.Format("LLM 정확도: {0}%  수동 변경: {1}건",
@@ -378,7 +493,6 @@ namespace MailPrioritizer.TaskPane
         private void SafeInvoke(Action action)
         {
             if (IsDisposed || !IsHandleCreated) return;
-
             if (InvokeRequired)
             {
                 try { Invoke(action); }
@@ -397,61 +511,61 @@ namespace MailPrioritizer.TaskPane
 
         private void InitializeComponent()
         {
-            this.Dock = DockStyle.Fill;
-            this.Font = new Font("맑은 고딕", 9f);
-            this.AutoScroll = true;
-            this.Padding = new Padding(8);
+            Dock      = DockStyle.Fill;
+            Font      = new Font("맑은 고딕", 9f);
+            AutoScroll = true;
+            Padding   = new Padding(8);
 
             _toolTip = new ToolTip { AutoPopDelay = 8000, InitialDelay = 500 };
 
-            var layout = new TableLayoutPanel
+            _layout = new TableLayoutPanel
             {
-                Dock = DockStyle.Fill,
+                Dock        = DockStyle.Fill,
                 ColumnCount = 1,
-                AutoSize = true
+                AutoSize    = true
             };
 
             // 우선순위 배지
-            _pnlPriorityBadge = new Panel { Height = 36, Dock = DockStyle.Fill, BackColor = Color.White };
-            _lblPriorityText = new Label
+            _pnlPriorityBadge = new Panel { Height = 36, Dock = DockStyle.Fill };
+            _lblPriorityText  = new Label
             {
-                Dock = DockStyle.Fill,
+                Dock      = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("맑은 고딕", 12f, FontStyle.Bold)
+                Font      = new Font("맑은 고딕", 12f, FontStyle.Bold)
             };
             _pnlPriorityBadge.Controls.Add(_lblPriorityText);
 
             // 요약
             _lblSummaryHeader = new Label { Text = "요약:", Font = new Font("맑은 고딕", 9f, FontStyle.Bold), AutoSize = true };
-            _lblSummary = new Label { Dock = DockStyle.Fill, AutoSize = false, Height = 80, Text = "", BorderStyle = BorderStyle.FixedSingle };
+            _lblSummary       = new Label { Dock = DockStyle.Fill, AutoSize = false, Height = 80, Text = "", BorderStyle = BorderStyle.FixedSingle };
 
             // 판단 근거
             _lblReasonHeader = new Label { Text = "판단 근거:", Font = new Font("맑은 고딕", 9f, FontStyle.Bold), AutoSize = true };
-            _lblReason = new Label { Dock = DockStyle.Fill, AutoSize = false, Height = 44, Text = "" };
+            _lblReason       = new Label { Dock = DockStyle.Fill, AutoSize = false, Height = 44, Text = "" };
 
             // 구분선
             _pnlDivider = new Panel { Height = 1, Dock = DockStyle.Fill, BackColor = Color.LightGray };
 
             // 우선순위 변경
             _lblChangePriority = new Label { Text = "우선순위 변경:", AutoSize = true };
-            _cmbPriority = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
+            _cmbPriority       = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
             _cmbPriority.Items.AddRange(new object[] { "긴급", "높음", "보통", "낮음" });
 
             // 버튼
-            _btnReanalyze = new Button { Text = "재분석", Width = 80, Height = 28 };
+            _btnReanalyze = new Button { Text = "재분석",   Width = 80, Height = 28 };
             _btnMoveFolder = new Button { Text = "폴더이동", Width = 80, Height = 28 };
-            _btnReanalyze.Click += OnReanalyzeClick;
+            _btnReanalyze.Click  += OnReanalyzeClick;
             _btnMoveFolder.Click += OnMoveFolderClick;
             _cmbPriority.SelectedIndexChanged += OnPriorityChanged;
 
-            var btnPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
-            btnPanel.Controls.AddRange(new Control[] { _btnReanalyze, _btnMoveFolder });
+            _btnPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+            _btnPanel.Controls.AddRange(new Control[] { _btnReanalyze, _btnMoveFolder });
 
-            // 미분석 상태 패널
+            // 미분석 패널
             _pnlNotAnalyzed = new Panel { Dock = DockStyle.Fill, Height = 80 };
             _lblNotAnalyzed = new Label
             {
-                Dock = DockStyle.Fill,
+                Dock      = DockStyle.Fill,
                 ForeColor = Color.Gray,
                 TextAlign = ContentAlignment.MiddleCenter
             };
@@ -463,43 +577,43 @@ namespace MailPrioritizer.TaskPane
             _pnlAnalyzing = new Panel { Dock = DockStyle.Fill, Height = 40 };
             _lblAnalyzing = new Label
             {
-                Text = "분석 중...",
-                Dock = DockStyle.Fill,
+                Text      = "분석 중...",
+                Dock      = DockStyle.Fill,
                 ForeColor = Color.CornflowerBlue,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("맑은 고딕", 10f)
+                Font      = new Font("맑은 고딕", 10f)
             };
             _pnlAnalyzing.Controls.Add(_lblAnalyzing);
 
-            layout.Controls.Add(_pnlPriorityBadge);
-            layout.Controls.Add(_lblSummaryHeader);
-            layout.Controls.Add(_lblSummary);
-            layout.Controls.Add(_lblReasonHeader);
-            layout.Controls.Add(_lblReason);
-            layout.Controls.Add(_pnlDivider);
-            layout.Controls.Add(_lblChangePriority);
-            layout.Controls.Add(_cmbPriority);
-            layout.Controls.Add(btnPanel);
-            layout.Controls.Add(_pnlNotAnalyzed);
-            layout.Controls.Add(_pnlAnalyzing);
+            _layout.Controls.Add(_pnlPriorityBadge);
+            _layout.Controls.Add(_lblSummaryHeader);
+            _layout.Controls.Add(_lblSummary);
+            _layout.Controls.Add(_lblReasonHeader);
+            _layout.Controls.Add(_lblReason);
+            _layout.Controls.Add(_pnlDivider);
+            _layout.Controls.Add(_lblChangePriority);
+            _layout.Controls.Add(_cmbPriority);
+            _layout.Controls.Add(_btnPanel);
+            _layout.Controls.Add(_pnlNotAnalyzed);
+            _layout.Controls.Add(_pnlAnalyzing);
 
-            // 통계 패널 (#9)
-            var statsDivider = new Panel { Height = 1, Dock = DockStyle.Fill, BackColor = Color.LightGray };
-            _pnlStats = new Panel { Dock = DockStyle.Fill, Height = 80 };
+            // 통계 패널
+            _statsDivider = new Panel { Height = 1, Dock = DockStyle.Fill, BackColor = Color.LightGray };
+            _pnlStats     = new Panel { Dock = DockStyle.Fill, Height = 80 };
             _lblStatsTitle = new Label
             {
-                Text = "받은편지함 통계",
-                Font = new Font("맑은 고딕", 9f, FontStyle.Bold),
+                Text     = "받은편지함 통계",
+                Font     = new Font("맑은 고딕", 9f, FontStyle.Bold),
                 AutoSize = true,
-                Dock = DockStyle.Top
+                Dock     = DockStyle.Top
             };
             _lblStatsContent = new Label
             {
-                Text = "(새로고침 버튼을 눌러 통계를 확인하세요)",
-                Dock = DockStyle.Fill,
+                Text      = "(새로고침 버튼을 눌러 통계를 확인하세요)",
+                Dock      = DockStyle.Fill,
                 ForeColor = Color.DimGray,
-                AutoSize = false,
-                Height = 40
+                AutoSize  = false,
+                Height    = 40
             };
             _btnRefreshStats = new Button { Text = "통계 새로고침", Width = 100, Height = 24, Dock = DockStyle.Bottom };
             _btnRefreshStats.Click += (s, ev) => RefreshStats();
@@ -507,24 +621,24 @@ namespace MailPrioritizer.TaskPane
             _pnlStats.Controls.Add(_lblStatsTitle);
             _pnlStats.Controls.Add(_btnRefreshStats);
 
-            layout.Controls.Add(statsDivider);
-            layout.Controls.Add(_pnlStats);
+            _layout.Controls.Add(_statsDivider);
+            _layout.Controls.Add(_pnlStats);
 
-            // R-13: API 상태 레이블 (하단 고정)
+            // R-13: API 상태 레이블 (하단)
             _lblApiStatus = new Label
             {
-                Dock = DockStyle.Fill,
-                AutoSize = false,
-                Height = 18,
+                Dock      = DockStyle.Fill,
+                AutoSize  = false,
+                Height    = 18,
                 ForeColor = Color.Gray,
-                Text = "API 미호출",
-                Font = new Font("맑은 고딕", 8f),
+                Text      = "API 미호출",
+                Font      = new Font("맑은 고딕", 8f),
                 TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(2, 0, 0, 0)
+                Padding   = new Padding(2, 0, 0, 0)
             };
-            layout.Controls.Add(_lblApiStatus);
+            _layout.Controls.Add(_lblApiStatus);
 
-            this.Controls.Add(layout);
+            Controls.Add(_layout);
         }
     }
 }

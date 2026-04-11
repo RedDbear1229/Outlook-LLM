@@ -38,6 +38,11 @@ namespace MailPrioritizer.Forms
         // ── 탭4: 발신자 규칙 ──
         private DataGridView dgvRules;
 
+        // ── 탭5: 디스플레이 ──
+        private RadioButton rdoThemeLight;
+        private RadioButton rdoThemeGrey;
+        private RadioButton rdoThemeDark;
+
         private readonly AppConfig _original;
 
         // 단일 정의 출처: LlmService.DefaultSystemPrompt
@@ -65,7 +70,8 @@ namespace MailPrioritizer.Forms
             var tab2 = new TabPage("프롬프트");
             var tab3 = new TabPage("분류 설정");
             var tab4 = new TabPage("발신자 규칙");
-            tabControl.TabPages.AddRange(new[] { tab1, tab2, tab3, tab4 });
+            var tab5 = new TabPage("디스플레이");
+            tabControl.TabPages.AddRange(new[] { tab1, tab2, tab3, tab4, tab5 });
 
             // ── 탭1: API 설정 ──
             tab1.Padding = new Padding(12);
@@ -253,6 +259,129 @@ namespace MailPrioritizer.Forms
             pnl4.Controls.Add(btnRowPanel);
             tab4.Controls.Add(pnl4);
 
+            // ── 탭5: 디스플레이 ──
+            tab5.Padding = new Padding(16);
+            var pnl5 = new Panel { Dock = DockStyle.Fill };
+
+            var lblThemeTitle = new Label
+            {
+                Text     = "Task Pane 테마",
+                Font     = new Font("맑은 고딕", 10f, FontStyle.Bold),
+                AutoSize = true,
+                Location = new Point(0, 0)
+            };
+
+            var lblThemeHint = new Label
+            {
+                Text      = "Outlook의 색 테마에 맞게 선택하세요.",
+                ForeColor = Color.DimGray,
+                AutoSize  = true,
+                Location  = new Point(0, 28)
+            };
+
+            rdoThemeLight = new RadioButton
+            {
+                Text     = "밝은 테마  — 흰 배경 (Outlook 기본 / 흰색 모드)",
+                AutoSize = true,
+                Location = new Point(8, 62),
+                Checked  = true
+            };
+            rdoThemeGrey = new RadioButton
+            {
+                Text     = "회색 테마  — 회색 배경 (Outlook 회색 모드)",
+                AutoSize = true,
+                Location = new Point(8, 90)
+            };
+            rdoThemeDark = new RadioButton
+            {
+                Text     = "어두운 테마  — 어두운 배경 (Outlook 검은 모드)",
+                AutoSize = true,
+                Location = new Point(8, 118)
+            };
+
+            // 미리보기
+            var lblPreviewTitle = new Label
+            {
+                Text     = "미리보기",
+                Font     = new Font("맑은 고딕", 9f, FontStyle.Bold),
+                AutoSize = true,
+                Location = new Point(0, 158)
+            };
+
+            var pnlPreview = new Panel
+            {
+                Location    = new Point(0, 178),
+                Size        = new Size(480, 44),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            // 미리보기 배지 4개 (긴급/높음/보통/낮음)
+            var previewBadges = new Panel[4];
+            string[] badgeLabels = { "긴급", "높음", "보통", "낮음" };
+            for (int i = 0; i < 4; i++)
+            {
+                int idx = i;  // closure capture
+                previewBadges[i] = new Panel
+                {
+                    Location  = new Point(4 + i * 118, 4),
+                    Size      = new Size(110, 34),
+                    BackColor = Color.White
+                };
+                var lbl = new Label
+                {
+                    Text      = badgeLabels[i],
+                    Dock      = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Font      = new Font("맑은 고딕", 9f, FontStyle.Bold)
+                };
+                previewBadges[i].Controls.Add(lbl);
+                pnlPreview.Controls.Add(previewBadges[i]);
+            }
+
+            // 미리보기 갱신 핸들러
+            EventHandler updatePreview = (s, ev) =>
+            {
+                TaskPane.ThemePalette palette = rdoThemeGrey.Checked
+                    ? TaskPane.ThemePalette.Grey
+                    : rdoThemeDark.Checked
+                        ? TaskPane.ThemePalette.Dark
+                        : TaskPane.ThemePalette.Light;
+
+                pnlPreview.BackColor = palette.PanelBackground;
+                Color[] backs = { palette.UrgentBadge, palette.HighBadge, palette.NormalBadge, palette.LowBadge };
+                Color[] texts = { palette.UrgentBadgeText, palette.HighBadgeText, palette.NormalBadgeText, palette.LowBadgeText };
+                for (int i = 0; i < 4; i++)
+                {
+                    previewBadges[i].BackColor = backs[i];
+                    if (previewBadges[i].Controls.Count > 0)
+                        previewBadges[i].Controls[0].ForeColor = texts[i];
+                }
+            };
+
+            rdoThemeLight.CheckedChanged += updatePreview;
+            rdoThemeGrey.CheckedChanged  += updatePreview;
+            rdoThemeDark.CheckedChanged  += updatePreview;
+
+            // 초기 미리보기 적용
+            updatePreview(null, EventArgs.Empty);
+
+            var lblRestartNote = new Label
+            {
+                Text      = "※ 테마 변경은 [저장] 클릭 후 즉시 적용됩니다.",
+                ForeColor = Color.DimGray,
+                AutoSize  = true,
+                Location  = new Point(0, 232)
+            };
+
+            pnl5.Controls.AddRange(new Control[]
+            {
+                lblThemeTitle, lblThemeHint,
+                rdoThemeLight, rdoThemeGrey, rdoThemeDark,
+                lblPreviewTitle, pnlPreview,
+                lblRestartNote
+            });
+            tab5.Controls.Add(pnl5);
+
             // ── 하단 버튼 ──
             var btnPanel = new FlowLayoutPanel
             {
@@ -296,6 +425,14 @@ namespace MailPrioritizer.Forms
             numMaxBody.Value     = config.Processing.MaxBodyLength;
             chkAutoAnalyze.Checked = config.Processing.AutoAnalyzeNewMail;
             chkIncludeAttachments.Checked = config.Processing.IncludeAttachmentNames;
+
+            // 테마 복원
+            switch ((config.Display.ThemeName ?? "light").ToLowerInvariant())
+            {
+                case "grey": rdoThemeGrey.Checked  = true; break;
+                case "dark": rdoThemeDark.Checked  = true; break;
+                default:     rdoThemeLight.Checked = true; break;
+            }
 
             // 발신자 규칙 복원 (R-01)
             dgvRules.Rows.Clear();
@@ -437,6 +574,9 @@ namespace MailPrioritizer.Forms
             config.Display.TagSubjectWithPriority = chkTagSubject.Checked;
             config.Display.TaskPaneVisible = _original.Display.TaskPaneVisible;
             config.Display.TaskPaneWidth   = _original.Display.TaskPaneWidth;
+            config.Display.ThemeName       = rdoThemeGrey.Checked ? "grey"
+                                           : rdoThemeDark.Checked ? "dark"
+                                           : "light";
             config.Processing.MaxBodyLength       = (int)numMaxBody.Value;
             config.Processing.ConcurrentRequests     = _original.Processing.ConcurrentRequests;
             config.Processing.AutoAnalyzeNewMail     = chkAutoAnalyze.Checked;

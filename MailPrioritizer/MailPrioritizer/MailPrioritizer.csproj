@@ -209,6 +209,7 @@
     <Compile Include="Forms\SettingsForm.cs" />
     <Compile Include="Forms\ProgressForm.cs" />
     <Compile Include="TaskPane\SummaryControl.cs" />
+    <Compile Include="TaskPane\ThemePalette.cs" />
     <AppDesigner Include="Properties\" />
   </ItemGroup>
   <ItemGroup>
