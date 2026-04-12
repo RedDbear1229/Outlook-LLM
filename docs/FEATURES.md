@@ -1,6 +1,6 @@
 # MailPrioritizer — 구현 완료 기능 목록
 
-> 최종 업데이트: 2026-04-05
+> 최종 업데이트: 2026-04-12
 
 ---
 
@@ -18,6 +18,8 @@
 - `LLM_Summary` (Text) — 요약
 - `LLM_PriorityReason` (Text) — 판단 근거
 - `LLM_Analyzed` (YesNo) — 분석 완료 플래그
+- `LLM_ModelName` (Text) — 분석에 사용된 모델 이름
+- `LLM_AnalyzedAt` (Text) — 분석 시각 (ISO 8601)
 
 ---
 
@@ -33,9 +35,10 @@ Endpoint URL로 API 형식을 자동 감지하여 두 가지 API를 지원한다
 | 그 외 | OpenAI Chat Completions | `Bearer` 토큰 | `{endpoint}/chat/completions` |
 
 - 지수 백오프 재시도: 429/500/502/503 응답 시 2초→4초→8초, 최대 3회
-- `SemaphoreSlim` 기반 동시 요청 제한 (기본 3개)
+- `SemaphoreSlim` 기반 동시 요청 제한 (기본 3개, 설정 변경 시 즉시 재생성)
 - JSON 응답 파싱: `` ```json ``` `` 펜스 및 `{ }` 블록 자동 추출
 - 파싱 실패 시 Normal 우선순위 폴백
+- `HttpResponseMessage` 및 `HttpClient`는 `using` / `Dispose`로 안전 해제
 
 ---
 
@@ -60,7 +63,7 @@ Ribbon의 "선택 메일 요약" 버튼으로 현재 선택된 메일 1건을 �
 1. **수집:** DASL 필터로 분석 완료 메일을 빠르게 식별 → 미분석 EntryID 목록 구성
 2. **Phase 1 (STA):** COM에서 메일 데이터 추출 → `MailDataItem` POCO로 변환
 3. **Phase 2 (ThreadPool):** `Task.WhenAll` + `SemaphoreSlim`으로 LLM 병렬 호출
-4. **Phase 3 (STA):** UserProperty 저장 + 제목 태그 + 폴더 이동 (순차)
+4. **Phase 3 (STA):** UserProperty 저장 + 제목 태그 + 폴더 이동 + IndexDatabase 기록 (순차)
 
 **배치 특성:**
 - 배치 크기: `Max(ConcurrentRequests * 5, 15)` — 파이프라인 효율 극대화
@@ -78,6 +81,7 @@ Ribbon의 "선택 메일 요약" 버튼으로 현재 선택된 메일 1건을 �
 모든 메일의 `LLM_Analyzed` 플래그를 초기화한 뒤 일괄 분석을 재실행한다.
 - 실행 전 확인 대화상자 표시
 - 리셋 건수 로깅 후 `OnAnalyzeAllClick`과 동일 흐름 실행
+- `LastBatchAnalyzedAt`도 초기화하여 전체 스캔 보장
 
 ---
 
@@ -90,6 +94,7 @@ Ribbon의 "선택 메일 요약" 버튼으로 현재 선택된 메일 1건을 �
 - 복수 메일 동시 수신 시 `Task.WhenAll`로 병렬 분석
 - 현재 Task Pane에서 보고 있는 메일이면 자동 갱신 (`RefreshTaskPaneIfSelected`)
 - API 미설정 시 자동으로 비활성화
+- NameSpace COM 객체는 finally 블록에서 안전 해제
 
 ---
 
@@ -97,15 +102,15 @@ Ribbon의 "선택 메일 요약" 버튼으로 현재 선택된 메일 1건을 �
 
 **파일:** `TaskPane/SummaryControl.cs`
 
-Explorer 우측에 고정되는 320px 패널. 메일 선택 시 자동 갱신된다.
+Explorer 우측에 고정되는 패널. 메일 선택 시 자동 갱신된다.
 
 **상태별 표시:**
 | 상태 | 표시 내용 |
 |------|----------|
 | 메일 미선택 | "메일을 선택하면 분석 결과가 표시됩니다." |
 | 미분석 메일 | "아직 분석되지 않은 메일입니다." + "지금 분석하기" 버튼 |
-| 분석 중 | "분석 중..." (파란색) |
-| 분석 완료 | 우선순위 배지(색상) + 요약 + 판단 근거 |
+| 분석 중 | "분석 중..." (테마 색상) |
+| 분석 완료 | 우선순위 배지(색상) + 요약 + 판단 근거 + 분석 시각/모델 |
 | 오류 | "오류: {메시지}" |
 
 **인터랙션:**
@@ -148,7 +153,7 @@ Explorer 우측에 고정되는 320px 패널. 메일 선택 시 자동 갱신된
 **파일:** `Services/FolderManager.cs` → `GetTargetInbox`, `Forms/SettingsForm.cs`
 
 Outlook에 등록된 여러 메일 계정 중 분석 대상을 선택할 수 있다.
-- 설정 > 분류 설정 탭의 "대상 계정" ComboBox에서 선택
+- 설정 > 탭 3 "대상 계정" ComboBox에서 선택
 - 기본값: `(기본 저장소)` — Outlook 기본 계정
 - 선택한 저장소 미발견 시 기본 저장소로 자동 폴백 + 경고 로그
 
@@ -161,7 +166,7 @@ Outlook에 등록된 여러 메일 계정 중 분석 대상을 선택할 수 있
 분석 완료된 메일의 결과를 CSV 파일로 내보낸다.
 - 컬럼: Subject, Sender, Priority, Summary, PriorityReason
 - 파일명 기본값: `MailPrioritizer_Export_yyyyMMdd.csv`
-- UTF-8 인코딩, CSV 특수문자(쉼표/따옴표/줄바꿈) 이스케이프 처리
+- UTF-8 인코딩, CSV 특수문자(쉼표/따옴표/줄바꿈/null) 이스케이프 처리
 - 내보내기 완료 시 건수 + 파일 경로 표시
 
 ---
@@ -170,10 +175,10 @@ Outlook에 등록된 여러 메일 계정 중 분석 대상을 선택할 수 있
 
 **파일:** `Forms/SettingsForm.cs`, `Config/ConfigManager.cs`
 
-3탭 구성의 설정 창:
+4탭 구성의 설정 창:
 
 **탭 1 — API 설정:**
-- Endpoint URL, API Token, 모델 이름
+- Endpoint URL, API Token, 모델 이름, 최대 토큰, 타임아웃
 - "연결 테스트" 버튼 (실제 LLM 호출로 검증, 결과 표시)
 
 **탭 2 — 프롬프트:**
@@ -183,9 +188,14 @@ Outlook에 등록된 여러 메일 계정 중 분석 대상을 선택할 수 있
 
 **탭 3 — 분류 설정:**
 - 폴더 접두사, 자동 폴더 이동, 제목 태그 삽입
-- 본문 최대 길이 (500~20000)
-- 대상 계정 선택
-- 새 메일 자동 분석 토글
+- 본문 최대 길이 (500~20000), 첨부파일명 포함 옵션
+- 대상 계정 선택, 새 메일 자동 분석 토글
+- 동시 요청 수, 색상 테마 선택
+
+**탭 4 — 발신자 규칙:**
+- DataGridView로 규칙 목록 관리 (추가/삭제/편집)
+- 규칙 유형: `email` (정확 일치) / `domain` (도메인 일치)
+- 활성화/비활성화 체크박스, 관리용 메모
 
 설정은 `%AppData%/MailPrioritizer/config.json`에 저장. API 토큰은 Windows DPAPI로 암호화.
 
@@ -197,7 +207,7 @@ Outlook에 등록된 여러 메일 계정 중 분석 대상을 선택할 수 있
 
 운영 환경에서의 문제 진단을 위한 구조화된 로깅 시스템.
 - 경로: `%AppData%/MailPrioritizer/Logs/MailPrioritizer-yyyy-MM-dd.log`
-- 포맷: `[2026-03-29 14:30:45.123] [INFO] 메시지`
+- 포맷: `[2026-04-12 14:30:45.123] [INFO] 메시지`
 - 4단계 레벨: Debug, Info, Warn, Error
 - Error 레벨: 예외 타입, 메시지, 스택 트레이스, InnerException 포함
 - `lock` + `File.AppendAllText`로 스레드 안전
@@ -229,6 +239,7 @@ LLM API 호출 실패 시 EntryID를 로컬 큐에 저장하여 자동 재시도
 - 최대 재시도 횟수: 3회 (초과 시 큐에서 자동 제거)
 - 중복 Enqueue 방지 (EntryID 기반)
 - 스레드 안전: `lock` 기반 동기화
+- 큐 최대 크기: 1000건 (초과 시 신규 항목 드롭 + 경고 로그)
 
 ---
 
@@ -241,6 +252,7 @@ LLM API 호출 실패 시 EntryID를 로컬 큐에 저장하여 자동 재시도
 - LLM 결과와 동일하면 기록하지 않음 (실제 수정만 추적)
 - 정확도 통계: 분석 총 건수 대비 수정 건수 → 정확도 백분율
 - 오분류 패턴: 가장 많이 발생한 `LLM우선순위→사용자우선순위` 패턴 표시
+- 90일 초과 레코드 자동 삭제 (Add-in 시작 시 정리)
 
 ---
 
@@ -262,3 +274,113 @@ LLM API 호출 실패 시 EntryID를 로컬 큐에 저장하여 자동 재시도
 - `Processing.IncludeAttachmentNames` 설정으로 제어
 - 파일명 목록을 `"첨부파일: file1.pdf, file2.docx"` 형태로 프롬프트에 추가
 - COM Attachment 객체는 개별 try/finally로 안전 해제
+
+---
+
+## 18. 발신자/도메인 기반 규칙 엔진
+
+**파일:** `Models/AppConfig.cs` → `SenderRule`, `RulesConfig`, `Services/MailProcessor.cs` → `ApplySenderRules`, `Forms/SettingsForm.cs`
+
+발신자 이메일 또는 도메인에 따라 LLM 호출 없이 즉시 우선순위를 결정하는 규칙 엔진.
+
+- **유형:** `email` (정확 일치) 또는 `domain` (@ 이후 도메인 일치)
+- **우선 적용:** 단건/배치 분석 모두 LLM 호출 전에 규칙 평가
+- **비용 절감:** 규칙 일치 시 API 호출 없음 (`IsRuleBased = true` 표시)
+- **관리 UI:** 설정 창 탭 4에서 DataGridView로 추가/편집/삭제
+- **필드:** 유형, 패턴, 우선순위, 활성화 여부, 메모
+
+---
+
+## 19. Task Pane 너비 및 표시 상태 기억
+
+**파일:** `ThisAddIn.cs`, `Models/AppConfig.cs` → `DisplayConfig`
+
+Outlook 재시작 후에도 Task Pane 상태를 복원한다.
+- `DisplayConfig.TaskPaneVisible` — 열림/닫힘 상태, `VisibleChanged` 이벤트로 즉시 저장
+- `DisplayConfig.TaskPaneWidth` — 너비(픽셀), 1초 간격 폴링 타이머로 변화 감지 후 저장
+
+---
+
+## 20. 분석 결과 로컬 인덱스 (SQLite)
+
+**파일:** `Services/IndexDatabase.cs`
+
+분석 결과를 SQLite DB에 별도 저장하여 통계/내보내기를 COM 순회 없이 처리한다.
+- DB 경로: `%AppData%/MailPrioritizer/index.db`
+- 테이블: `mails(entry_id, subject, sender, priority, summary, reason, model_name, analyzed_at, is_rule_based)`
+- 인덱스: `idx_priority ON mails(priority)`
+- 통계 조회: SQL `COUNT/GROUP BY`로 수천 건도 즉시 반환
+- 내보내기: DB 쿼리로 전체 메일 COM 순회 불필요
+
+---
+
+## 21. 전역 키보드 단축키
+
+**파일:** `Utils/KeyboardShortcutManager.cs`
+
+Win32 `RegisterHotKey` API + 메시지 전용 `NativeWindow`로 구현한 전역 단축키.
+
+| 단축키 | 기능 |
+|--------|------|
+| `Ctrl + Shift + M` | 현재 선택된 메일 분석 |
+| `Ctrl + Shift + 1` | 우선순위 → 긴급 |
+| `Ctrl + Shift + 2` | 우선순위 → 높음 |
+| `Ctrl + Shift + 3` | 우선순위 → 보통 |
+| `Ctrl + Shift + 4` | 우선순위 → 낮음 |
+
+- 단축키 충돌 시 로그 경고 후 해당 단축키만 건너뜀
+- `IDisposable` 구현으로 Outlook 종료 시 `UnregisterHotKey` 자동 호출
+
+---
+
+## 22. 증분 배치 분석
+
+**파일:** `Services/MailProcessor.cs`, `Models/AppConfig.cs` → `ProcessingConfig.LastBatchAnalyzedAt`
+
+마지막 배치 분석 이후 수신된 메일만 처리하여 반복 실행 속도를 극적으로 단축한다.
+- `config.json`의 `lastBatchAnalyzedAt` 타임스탬프 사용
+- DASL 필터에 `ReceivedTime >= lastBatchAnalyzedAt` 조건 추가
+- 배치 완료 시 타임스탬프를 현재 시각으로 업데이트
+- 전체 재분석 시 타임스탬프 초기화 → 전체 스캔
+- 설정 저장 시 `LastBatchAnalyzedAt` 보존 (초기화하지 않음)
+
+---
+
+## 23. LLM API 헬스체크
+
+**파일:** `Services/LlmService.cs`, `TaskPane/SummaryControl.cs`
+
+Task Pane 하단에 마지막 API 호출 성공/실패 상태를 상시 표시한다.
+- 마지막 API 호출 성공 시각과 실패 여부를 `LlmService`에 기록
+- Task Pane 하단 상태 표시: 초록(정상) / 빨강(오류) / 회색(미호출)
+- 메일 선택 시 자동 갱신
+
+---
+
+## 24. Task Pane 색상 테마
+
+**파일:** `TaskPane/ThemePalette.cs`, `TaskPane/SummaryControl.cs`
+
+Outlook 색상 모드에 맞는 3가지 테마를 제공한다.
+
+| 테마 | `ThemeName` 값 | 배경 | 용도 |
+|------|---------------|------|------|
+| 밝은 테마 (기본) | `"light"` | 흰 배경, 밝은 배지 | Outlook White 모드 |
+| 회색 테마 | `"grey"` | 중간 회색, 진한 배지 | Outlook Dark Grey 모드 |
+| 어두운 테마 | `"dark"` | 어두운 배경, 밝은 텍스트 | Outlook Black 모드 |
+
+- 모든 배지 색상, 텍스트 색상, 배경, 버튼 스타일이 테마별로 정의
+- 설정 저장 즉시 Task Pane에 반영
+- `ThemePalette.FromName(string)` 팩토리 메서드로 이름→팔레트 변환
+
+---
+
+## 25. C# GUI 설치 관리자
+
+**파일:** `MailPrioritizer.Installer/` (별도 프로젝트)
+
+PowerShell 스크립트 방식을 대체하는 C# WinForms 설치 관리자.
+- **설치:** VSTO 매니페스트 배포 + 레지스트리 등록
+- **복구:** Add-in 레지스트리 등록 복구 (비활성화된 Add-in 재활성화)
+- **제거:** 등록 해제 + 파일 삭제
+- `deploy-clickonce.ps1` 실행 시 `publish\MailPrioritizer.Installer.exe`로 패키징됨

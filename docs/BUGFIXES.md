@@ -1,6 +1,6 @@
 # MailPrioritizer — 오류 수정 및 코드 개선 이력
 
-> 최종 업데이트: 2026-03-29
+> 최종 업데이트: 2026-04-12
 
 ---
 
@@ -26,11 +26,21 @@ Task Pane의 "지금 분석하기" 버튼이 `ribbon.OnAnalyzeSelectedClick(send
 
 ---
 
-## COM 객체 누수 수정 (5건)
+### 3. `CsvEscape` null 입력 — NullReferenceException
+
+**파일:** `Services/MailProcessor.cs` → `CsvEscape`
+
+메일 필드(요약, 판단 근거 등)가 null인 경우 `.Contains()` 호출에서 런타임 오류 발생.
+
+**수정:** 메서드 최상단에 `if (value == null) return "";` null 가드 추가.
+
+---
+
+## COM 객체 누수 수정 (13건)
 
 COM 객체를 해제하지 않으면 Outlook 종료 시 프로세스가 잔류하거나, 장시간 사용 시 메모리 누수가 발생한다.
 
-### 3. Explorer.SelectionChange — Selection, MailItem 누수
+### 4. Explorer.SelectionChange — Selection, MailItem 누수
 
 **파일:** `ThisAddIn.cs` → `Explorer_SelectionChange_Debounced`
 
@@ -40,7 +50,7 @@ COM 객체를 해제하지 않으면 Outlook 종료 시 프로세스가 잔류�
 
 ---
 
-### 4. OnAnalyzeSelectedClick — Selection, MailItem 누수
+### 5. OnAnalyzeSelectedClick — Selection, MailItem 누수
 
 **파일:** `Ribbon/MailRibbon.cs` → `OnAnalyzeSelectedClick`
 
@@ -50,7 +60,7 @@ Ribbon 버튼 클릭 시 Selection과 MailItem COM 객체가 예외 발생 시 �
 
 ---
 
-### 5. Application_NewMailEx — MailItem, NameSpace 누수
+### 6. Application_NewMailEx — MailItem, NameSpace 누수
 
 **파일:** `ThisAddIn.cs` → `AnalyzeNewMailAsync`
 
@@ -60,7 +70,7 @@ Ribbon 버튼 클릭 시 Selection과 MailItem COM 객체가 예외 발생 시 �
 
 ---
 
-### 6. LoadStoreList — Stores, Store, NameSpace 누수
+### 7. LoadStoreList — Stores, Store, NameSpace 누수
 
 **파일:** `Forms/SettingsForm.cs` → `LoadStoreList`
 
@@ -70,7 +80,7 @@ Ribbon 버튼 클릭 시 Selection과 MailItem COM 객체가 예외 발생 시 �
 
 ---
 
-### 7. GetTargetInbox — NameSpace, Store 누수
+### 8. GetTargetInbox — NameSpace, Store 누수
 
 **파일:** `Services/FolderManager.cs` → `GetTargetInbox`
 
@@ -80,7 +90,7 @@ Ribbon 버튼 클릭 시 Selection과 MailItem COM 객체가 예외 발생 시 �
 
 ---
 
-### 8. LlmService 연결 테스트 — HttpClient 누수
+### 9. LlmService 연결 테스트 — HttpClient 누수
 
 **파일:** `Forms/SettingsForm.cs` → `OnTestConnectionClick`
 
@@ -90,9 +100,193 @@ Ribbon 버튼 클릭 시 Selection과 MailItem COM 객체가 예외 발생 시 �
 
 ---
 
+### 10. AnalyzeInboxAsync Phase 1 — NameSpace 루프 누수
+
+**파일:** `Services/MailProcessor.cs` → `AnalyzeInboxAsync` Phase 1
+
+`outlookApp.Session.GetItemFromID()`를 메일 아이템 루프 내부에서 매번 호출하여 Session COM 객체가 아이템마다 새로 획득되고 해제되지 않음. 수백 건 처리 시 수백 개의 누수 발생.
+
+**수정:** Session을 루프 외부에서 1회 획득하고 Phase 완료 후 finally에서 1회 해제.
+
+```csharp
+Outlook.NameSpace p1Session = outlookApp.Session;
+try
+{
+    foreach (var id in batch)
+    {
+        // p1Session.GetItemFromID(id) 사용
+    }
+}
+finally
+{
+    ComHelper.ReleaseAll(p1Session);
+}
+```
+
+---
+
+### 11. AnalyzeInboxAsync Phase 3 — NameSpace 루프 누수
+
+**파일:** `Services/MailProcessor.cs` → `AnalyzeInboxAsync` Phase 3
+
+Phase 1과 동일한 패턴으로 Phase 3에서도 Session을 루프마다 획득.
+
+**수정:** Phase 1과 동일 패턴으로 `p3Session`을 루프 외부로 호이스트.
+
+---
+
+### 12. SummaryControl.OnMoveFolderClick — NameSpace 누수
+
+**파일:** `TaskPane/SummaryControl.cs` → `OnMoveFolderClick`
+
+`Application.Session.GetItemFromID()`로 메일 획득 후 Session을 해제하지 않음.
+
+**수정:** `Outlook.NameSpace session = ...; try { ... } finally { ComHelper.ReleaseAll(mail, session); }`
+
+---
+
+### 13. SummaryControl.OnPriorityChanged — NameSpace 누수
+
+**파일:** `TaskPane/SummaryControl.cs` → `OnPriorityChanged`
+
+우선순위 수동 변경 시 Session 누수. 12번과 동일 패턴.
+
+**수정:** 동일 패턴으로 Session을 finally에서 해제.
+
+---
+
+### 14. SummaryControl.RunAnalysisAsync — NameSpace 누수
+
+**파일:** `TaskPane/SummaryControl.cs` → `RunAnalysisAsync`
+
+`await` 경계 전후로 Session을 보유하여 COM 스레드 문제 및 누수 발생.
+
+**수정:** Session과 mail 참조를 `await` 이전에 해제하도록 구조 변경.
+
+---
+
+### 15. ProcessRetryQueueAsync — NameSpace 루프 누수
+
+**파일:** `ThisAddIn.cs` → `ProcessRetryQueueAsync`
+
+재시도 큐 처리 루프에서 Session을 루프마다 획득.
+
+**수정:** Session을 루프 외부에서 1회 획득하고 finally에서 해제.
+
+---
+
+## HttpClient 리소스 누수 수정 (2건)
+
+### 16. CallClaudeApiAsync — HttpResponseMessage 미해제
+
+**파일:** `Services/LlmService.cs` → `CallClaudeApiAsync`
+
+`HttpResponseMessage response = await _httpClient.SendAsync(...)` 이후 `response.Dispose()`를 호출하지 않음. API 호출마다 응답 스트림 리소스가 누적.
+
+**수정:** `using (HttpResponseMessage response = await _httpClient.SendAsync(...))` 블록으로 감싸 자동 해제.
+
+---
+
+### 17. CallOpenAiApiAsync — HttpResponseMessage 미해제
+
+**파일:** `Services/LlmService.cs` → `CallOpenAiApiAsync`
+
+16번과 동일한 패턴.
+
+**수정:** 동일하게 `using` 블록으로 감싸 자동 해제.
+
+---
+
+## 무한 성장 방지 수정 (2건)
+
+### 18. RetryQueue 무한 성장
+
+**파일:** `Services/RetryQueue.cs` → `Enqueue`
+
+실패 메일이 지속적으로 누적될 경우 큐가 무한정 커질 수 있었음.
+
+**수정:** `MaxQueueSize = 1000` 상수 추가. Enqueue 시 크기 초과 여부를 확인하고, 초과 시 신규 항목을 추가하지 않으며 경고 로그 기록.
+
+```csharp
+if (_queue.Count >= MaxQueueSize)
+{
+    Logger.Warn("RetryQueue: queue full (1000), dropping entry " + entryId);
+    return;
+}
+```
+
+---
+
+### 19. FeedbackStore 무한 성장
+
+**파일:** `Services/FeedbackStore.cs`
+
+수동 우선순위 변경 이력이 영구 누적되어 장기 운영 시 파일 크기 증가.
+
+**수정:** `RetentionDays = 90` 상수 추가. 생성자에서 `PurgeOldItems()` 호출하여 90일 초과 레코드 자동 삭제.
+
+```csharp
+private void PurgeOldItems()
+{
+    DateTime cutoff = DateTime.UtcNow.AddDays(-RetentionDays);
+    _items.RemoveAll(i => i.ChangedAt < cutoff);
+}
+```
+
+---
+
+## 설정 데이터 유실 수정 (2건)
+
+### 20. SemaphoreSlim 설정 변경 미반영
+
+**파일:** `Services/LlmService.cs` → `ReloadConfig`
+
+설정에서 동시 요청 수(`ConcurrentRequests`)를 변경해도 기존 `SemaphoreSlim` 인스턴스가 유지되어 효과 없음.
+
+**수정:** `ReloadConfig`에서 현재 카운트 비교 후 새 `SemaphoreSlim` 생성, 기존 인스턴스 Dispose.
+
+---
+
+### 21. LastBatchAnalyzedAt 설정 저장 시 초기화
+
+**파일:** `Forms/SettingsForm.cs` → `BuildConfig`
+
+설정 창에서 저장 버튼 클릭 시 새 `AppConfig` 객체를 생성하여 반환하는 과정에서 `ProcessingConfig.LastBatchAnalyzedAt`이 null로 초기화됨. 결과적으로 설정을 저장할 때마다 증분 배치 분석 베이스라인이 리셋되어 매번 전체 스캔이 실행됨.
+
+**수정:** `BuildConfig` 내에서 원본 설정의 값을 신규 설정 객체에 복사.
+
+```csharp
+config.Processing.LastBatchAnalyzedAt = _original.Processing.LastBatchAnalyzedAt;
+```
+
+---
+
+## 보안/정확성 수정 (1건)
+
+### 22. SelfHealRegistration Office 버전 하드코딩
+
+**파일:** `ThisAddIn.cs` → `SelfHealRegistration`
+
+레지스트리 경로에 Office 버전이 `"16.0"`으로 하드코딩되어 있어 향후 Office 버전 업그레이드 시 자가 복구 기능이 동작하지 않을 수 있음.
+
+**수정:** `Application.Version`에서 Major.Minor를 동적으로 추출하고, 파싱 실패 시 `"16.0"`으로 폴백.
+
+```csharp
+string officeVer = "16.0";
+try
+{
+    string appVer = Application.Version ?? "";
+    int dot2 = appVer.IndexOf('.', appVer.IndexOf('.') + 1);
+    if (dot2 > 0) officeVer = appVer.Substring(0, dot2);
+}
+catch { /* fall back to 16.0 */ }
+```
+
+---
+
 ## 코드 중복 제거 (4건)
 
-### 9. `IsAnalyzed` 패턴 통합 (5곳 → 1곳)
+### 23. `IsAnalyzed` 패턴 통합 (5곳 → 1곳)
 
 **파일:** `Services/MailProcessor.cs` → `IsAnalyzed(object)`
 
@@ -102,7 +296,7 @@ Ribbon 버튼 클릭 시 Selection과 MailItem COM 객체가 예외 발생 시 �
 
 ---
 
-### 10. `GetSender` 패턴 통합 (3곳 → 1곳)
+### 24. `GetSender` 패턴 통합 (3곳 → 1곳)
 
 **파일:** `Services/MailProcessor.cs` → `GetSender(MailItem)`
 
@@ -112,7 +306,7 @@ Ribbon 버튼 클릭 시 Selection과 MailItem COM 객체가 예외 발생 시 �
 
 ---
 
-### 11. `SetViewState` 통합 (4곳 → 1곳)
+### 25. `SetViewState` 통합 (4곳 → 1곳)
 
 **파일:** `TaskPane/SummaryControl.cs` → `SetViewState`
 
@@ -122,7 +316,7 @@ Task Pane의 상태 전환 시 10~15개 컨트롤의 `.Visible` 속성을 개별
 
 ---
 
-### 12. `ClearAnalysisFlag` 중앙화 (2곳 → 1곳)
+### 26. `ClearAnalysisFlag` 중앙화 (2곳 → 1곳)
 
 **파일:** `Services/MailProcessor.cs` → `ClearAnalysisFlag(MailItem)`
 
@@ -134,7 +328,7 @@ SummaryControl과 MailProcessor에 각각 동일한 플래그 초기화 로직�
 
 ## 성능 개선 (5건)
 
-### 13. DASL 필터 기반 미분석 메일 수집
+### 27. DASL 필터 기반 미분석 메일 수집
 
 **파일:** `Services/MailProcessor.cs` → `CollectUnanalyzedEntryIds`
 
@@ -144,7 +338,7 @@ SummaryControl과 MailProcessor에 각각 동일한 플래그 초기화 로직�
 
 ---
 
-### 14. 배치 크기와 동시성 제한 분리
+### 28. 배치 크기와 동시성 제한 분리
 
 **파일:** `Services/MailProcessor.cs` → `AnalyzeInboxAsync`
 
@@ -154,7 +348,7 @@ SummaryControl과 MailProcessor에 각각 동일한 플래그 초기화 로직�
 
 ---
 
-### 15. NewMailEx 병렬 처리
+### 29. NewMailEx 병렬 처리
 
 **파일:** `ThisAddIn.cs` → `Application_NewMailEx`
 
@@ -164,7 +358,7 @@ SummaryControl과 MailProcessor에 각각 동일한 플래그 초기화 로직�
 
 ---
 
-### 16. SelectionChange 디바운스
+### 30. SelectionChange 디바운스
 
 **파일:** `ThisAddIn.cs`
 
@@ -174,7 +368,7 @@ SummaryControl과 MailProcessor에 각각 동일한 플래그 초기화 로직�
 
 ---
 
-### 17. 이중 Save 제거
+### 31. 이중 Save 제거
 
 **파일:** `Services/MailProcessor.cs`
 
@@ -184,21 +378,9 @@ SummaryControl과 MailProcessor에 각각 동일한 플래그 초기화 로직�
 
 ---
 
-## 설정 반영 오류 수정 (1건)
-
-### 18. SemaphoreSlim 설정 변경 미반영
-
-**파일:** `Services/LlmService.cs` → `ReloadConfig`
-
-**이전:** 설정에서 동시 요청 수(`ConcurrentRequests`)를 변경해도 기존 `SemaphoreSlim` 인스턴스가 유지되어 효과 없음.
-
-**이후:** `ReloadConfig`에서 현재 카운트 비교 후 새 `SemaphoreSlim` 생성, 기존 인스턴스 Dispose.
-
----
-
 ## 기타 품질 개선 (3건)
 
-### 19. BatchProgress.Processed 계산 속성화
+### 32. BatchProgress.Processed 계산 속성화
 
 **파일:** `Services/MailProcessor.cs`
 
@@ -208,7 +390,7 @@ SummaryControl과 MailProcessor에 각각 동일한 플래그 초기화 로직�
 
 ---
 
-### 20. 중복 XML 주석 제거
+### 33. 중복 XML 주석 제거
 
 **파일:** `Services/MailProcessor.cs:367`
 
@@ -218,7 +400,7 @@ SummaryControl과 MailProcessor에 각각 동일한 플래그 초기화 로직�
 
 ---
 
-### 21. 미사용 using 제거
+### 34. 미사용 using 제거
 
 **파일:** `Ribbon/MailRibbon.cs:2`
 

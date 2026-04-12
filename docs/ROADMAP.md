@@ -1,10 +1,10 @@
 # MailPrioritizer — 향후 구현 예정 아이템
 
-> 최종 업데이트: 2026-04-05
+> 최종 업데이트: 2026-04-12
 
 ---
 
-## Phase 1: 즉시 효과 (구현 난이도 낮음, 체감 효과 높음)
+## 완료된 기능
 
 ### ~~R-01. 발신자/도메인 기반 규칙 엔진~~ (구현 완료)
 
@@ -14,13 +14,13 @@
 
 ### ~~R-02. 오프라인 재시도 큐~~ (구현 완료)
 
-`Services/RetryQueue.cs`로 구현됨. `%AppData%/MailPrioritizer/retry_queue.json`에 실패 EntryID 저장, 최대 3회 재시도.
+`Services/RetryQueue.cs`로 구현됨. `%AppData%/MailPrioritizer/retry_queue.json`에 실패 EntryID 저장, 최대 3회 재시도. 큐 최대 크기 1000건 제한 추가.
 
 ---
 
 ### ~~R-03. Task Pane 상태 기억~~ (구현 완료)
 
-`DisplayConfig.TaskPaneVisible/TaskPaneWidth` 필드로 저장/복원. 열림·닫힘은 `VisibleChanged` 이벤트로 즉시 저장, 너비는 1초 간격 폴링 타이머로 변화 감지 후 저장 (`CustomTaskPane`에 `WidthChanged` 이벤트 없음).
+`DisplayConfig.TaskPaneVisible/TaskPaneWidth` 필드로 저장/복원. 열림·닫힘은 `VisibleChanged` 이벤트로 즉시 저장, 너비는 1초 간격 폴링 타이머로 변화 감지 후 저장.
 
 ---
 
@@ -30,23 +30,15 @@
 
 ---
 
-## Phase 2: 핵심 개선 (중간 난이도)
-
 ### ~~R-05. 분석 결과 로컬 인덱스 (SQLite)~~ (구현 완료)
 
-분석 결과를 SQLite DB에 별도 저장하여 검색/통계/필터를 고속화한다.
-
-**현재 문제:** 통계 조회(`CollectInboxStats`)와 CSV 내보내기 시 받은편지함 전체 COM 순회 필요 — 메일이 수천 건이면 수십 초 소요.
-**구현 방식:** `%AppData%/MailPrioritizer/index.db`에 `{EntryID, Subject, Sender, Priority, Summary, AnalyzedAt}` 테이블. 분석 완료 시 INSERT/UPDATE. 통계는 SQL `COUNT/GROUP BY`.
-**추가 이점:** Outlook 재설치/프로필 변경 시에도 분석 이력 보존, "긴급 메일 검색" UI 제공 가능.
-**주의:** NuGet `System.Data.SQLite` 의존성 추가 필요.
-**예상 변경 파일:** 신규 `Services/IndexDatabase.cs`, `Services/MailProcessor.cs`, `MailPrioritizer.csproj`
+`Services/IndexDatabase.cs`로 구현됨. `%AppData%/MailPrioritizer/index.db`에 분석 결과 저장. 통계 조회와 CSV 내보내기를 COM 순회 없이 DB 쿼리로 처리.
 
 ---
 
 ### ~~R-06. 사용자 피드백 수집 및 정확도 통계~~ (구현 완료)
 
-`Services/FeedbackStore.cs`로 구현됨. `feedback.json`에 수동 변경 이력 저장, `GetStats()` 메서드로 정확도/오분류 패턴 통계 제공.
+`Services/FeedbackStore.cs`로 구현됨. `feedback.json`에 수동 변경 이력 저장, `GetStats()` 메서드로 정확도/오분류 패턴 통계 제공. 90일 보관 정책 추가.
 
 ---
 
@@ -56,21 +48,42 @@ UserProperty `LLM_ModelName`, `LLM_AnalyzedAt` 추가됨. `MailPropertyNames.cs`
 
 ---
 
-### R-08. 키보드 단축키
+### ~~R-08. 키보드 단축키~~ (구현 완료)
 
-자주 사용하는 기능에 전역 키보드 단축키를 바인딩한다.
+`Utils/KeyboardShortcutManager.cs`로 구현됨. Win32 `RegisterHotKey` + 메시지 전용 `NativeWindow` 방식.
 
 | 단축키 | 기능 |
 |--------|------|
 | `Ctrl+Shift+M` | 선택 메일 분석 |
 | `Ctrl+Shift+1~4` | 우선순위 즉시 변경 (긴급/높음/보통/낮음) |
 
-**구현 방식:** `Application.ActiveExplorer().CommandBars` 또는 Ribbon `getKeytip` 콜백.
-**예상 변경 파일:** `Ribbon/MailRibbon.xml`, `Ribbon/MailRibbon.cs`
+---
+
+### ~~R-12. 증분 분석 최적화~~ (구현 완료)
+
+`ProcessingConfig.LastBatchAnalyzedAt` 타임스탬프로 구현됨. 마지막 배치 이후 수신 메일만 스캔. 설정 저장 시 타임스탬프 보존 버그도 수정됨(BUGFIXES #21).
 
 ---
 
-## Phase 3: 장기 과제 (높은 난이도)
+### ~~R-13. Health Check 상태 표시~~ (구현 완료)
+
+`LlmService`에 마지막 API 호출 성공/실패 시각을 기록. Task Pane 하단에 상태 아이콘 표시 (초록/빨강/회색). 메일 선택 시 자동 갱신.
+
+---
+
+### ~~Task Pane 색상 테마~~ (구현 완료)
+
+`TaskPane/ThemePalette.cs`로 구현됨. Light / Grey / Dark 3가지 테마, 설정에서 `DisplayConfig.ThemeName`으로 제어. 설정 저장 즉시 반영.
+
+---
+
+### ~~C# GUI 설치 관리자~~ (구현 완료)
+
+`MailPrioritizer.Installer/` 프로젝트. PowerShell 스크립트 방식을 대체. 설치/복구/제거 UI 제공, `deploy-clickonce.ps1` 빌드 시 자동 패키징.
+
+---
+
+## 미구현 항목
 
 ### R-10. 단위 테스트 도입
 
@@ -102,29 +115,6 @@ Claude API의 SSE 스트리밍을 활용하여 Task Pane에서 요약이 실시�
 
 ---
 
-### R-12. 증분 분석 최적화
-
-마지막 분석 시점 이후 수신된 메일만 대상으로 하여 수집 단계를 최소화한다.
-
-**현재 상태:** "전체 분류" 실행 시 매번 받은편지함 전체를 순회하여 미분석 메일 식별.
-**구현 방식:** `config.json`에 `lastBatchAnalyzedAt` 타임스탬프 저장. DASL 필터에 `ReceivedTime >= lastBatchAnalyzedAt` 조건 추가.
-**예상 변경 파일:** `Models/AppConfig.cs`, `Services/MailProcessor.cs`, `Config/ConfigManager.cs`
-
----
-
-### ~~R-13. Health Check 상태 표시~~ (구현 완료)
-
-API 연결 상태를 Ribbon 또는 Task Pane에 상시 표시하여 문제를 즉시 인지할 수 있게 한다.
-
-**구현 방식:**
-- 마지막 API 호출 성공/실패 시각과 상태를 `LlmService`에 기록
-- Task Pane 하단에 상태 아이콘 표시 (초록/빨강/회색)
-- 선택적: 주기적 핑 (5분 간격, 설정으로 비활성화 가능)
-
-**예상 변경 파일:** `Services/LlmService.cs`, `TaskPane/SummaryControl.cs`
-
----
-
 ## 우선순위 매트릭스
 
 | 아이템 | 난이도 | 효과 | 상태 |
@@ -137,7 +127,9 @@ API 연결 상태를 Ribbon 또는 Task Pane에 상시 표시하여 문제를 �
 | ~~R-06 피드백 수집/정확도~~ | 중간 | 높음 | **완료** |
 | ~~R-07 분석 결과 버전 관리~~ | 중간 | 중간 | **완료** |
 | ~~R-08 키보드 단축키~~ | 중간 | 중간 | **완료** |
-| R-10 단위 테스트 | 높음 | 높음 | 미구현 |
-| R-11 LLM 스트리밍 | 높음 | 중간 | 미구현 |
+| R-10 단위 테스트 | 높음 | 높음 | **미구현** |
+| R-11 LLM 스트리밍 | 높음 | 중간 | **미구현** |
 | ~~R-12 증분 분석 최적화~~ | 중간 | 중간 | **완료** |
 | ~~R-13 Health Check~~ | 중간 | 낮음 | **완료** |
+| ~~Task Pane 색상 테마~~ | 낮음 | 중간 | **완료** |
+| ~~C# GUI 설치 관리자~~ | 중간 | 중간 | **완료** |
